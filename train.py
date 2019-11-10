@@ -45,9 +45,17 @@ def train(model, optimizer, train_loader, state):
     #     print(torch.sum(logits, dim=2))
     # else:
     #     mask_value = 0
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     for (batch_image, targets, targets_one_hot, targets_lengths) in t:
         t.set_description('Epoch {:.0f}/{:.0f} (train={})'.format(epoch, n_epochs, model.training))
+
+        
+
+        batch_image = batch_image.to(device)
+        targets = targets.to(device)
+        targets_one_hot = targets_one_hot.to(device)
+        targets_lengths = targets_lengths.to(device)
 
         outputs, weights = model.forward(batch_image, targets_one_hot, targets_lengths)
         # outputs: [T, B, V]

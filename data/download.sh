@@ -10,4 +10,4 @@ wget --no-check-certificate 'https://docs.google.com/uc?export=download&id=14AD4
 
 wget --no-check-certificate 'https://docs.google.com/uc?export=download&id=1QkVoe591EAY71XBQz1jY-Y2ZV0y3vyog' -O validation_word.csv
 
-
+wget --no-check-certificate 'https://docs.google.com/uc?export=download&id=1qIJNpvl7lKSs7sQOwqLCLncWpZylwxsI' -O all_word.csv
