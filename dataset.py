@@ -1,18 +1,21 @@
+import numpy as np
 import pandas as pd
 import os
 from PIL import Image
-
+import pdb
 import torch
 from torchvision import transforms
 from torch.utils.data import Dataset
 
 class VNOnDB(Dataset):
-    def __init__(self, root_dir, dataframe, image_transform=None, label_transform=None):
+    def __init__(self, root_dir, csv_file, image_transform=None, label_transform=None):
         self.root_dir = root_dir
         
-        self.df = dataframe
+        self.df = pd.read_csv(csv_file, sep='\t')
         self.image_transform = image_transform
         self.label_transform = label_transform
+
+        self.int2char = VNOnDB.alphabets()
         
     def __len__(self):
         return len(self.df)
@@ -30,8 +33,57 @@ class VNOnDB(Dataset):
             label = self.label_transform(label)
             
         return image, label
+
+class VNOnDBData:
+    def __init__(self, all_csv):
+        self.alphabets = VNOnDBData.get_alphabets(all_csv)
+        self.char2int = dict((c, i) for i, c in enumerate(self.alphabets))
+        self.int2char = dict((i, c) for i, c in enumerate(self.alphabets))
+
+    @staticmethod
+    def get_alphabets(csv_file):
+        alphabets = set()
+        df = pd.read_csv(csv_file, sep='\t')
+        words_list = df.loc[:, 'label'].astype(str)
+        for word in words_list.values:
+            alphabets = letters.union(set(list(word)))
+        alphabets += ['<start>', '<end>']
+        return alphabets
+    
+    def encode(self, characters: list):
+        """
+        Encode a string to one hot vector using alphabets
+        """
+        return np.array([[self.char2int[char]] for char in characters])
+
+    def to_one_hot(self, encoded_characters):
+        result = np.zeros((len(encoded_characters), len(alphabets)))
+        for i, char_int in enumerate(encoded_characters):
+            result[i, char_int] = 1
+        return result
+
+
+    def decode(self, one_hot_vectors):
+        string = ''.join(int_to_char[np.argmax(vector)] for vector in one_hot_vectors)
+        string = string.replace(eos_char, '')
+        return string
+
+    # def alphabets(csv_file):
+    #     if csv_file is None:
+    #         lower_vowels_with_dm = u'áàảãạắằẳãặâấầẩẫậíìỉĩịúùủũụưứừửữựéèẻẽẹêếềểễệóòỏõọơớờởỡợôốồổỗộyýỳỷỹỵ'
+    #         upper_vowels_with_dm = lower_vowels_with_dm.upper()
+    #         lower_without_dm = u'abcdefghijklmnopqrstuvwxyzđ'
+    #         upper_without_dm = lower_without_dm.upper()
+    #         digits = '1234567890'
+    #         symbols = '?/*+-!,."\':;#%&()[]'
+    #         alphabets = lower_vowels_with_dm + lower_without_dm + upper_vowels_with_dm + upper_without_dm + digits + symbols
+    #         alphabets = list(alphabets)
+
+    
+
     
 def to_batch(samples):
+    pdb.set_trace()
     batch_size = len(samples)
     image_samples, label_samples = list(zip(*samples))
     # image_samples: list of [C, H, W]

@@ -106,3 +106,6 @@ venv.bak/
 # data
 data/*
 !data/download.sh
+
+# VSCode
+.vscode/
