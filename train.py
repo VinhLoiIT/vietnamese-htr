@@ -98,38 +98,39 @@ def evaluate(model, val_loader):
     print('  End of evaluation : loss {:05.3f} , acc {:03.1f}'.format(np.mean(losses), np.mean(accs)))
     # return {'loss': np.mean(losses), 'cer': np.mean(accs)*100}
 
-self.batch_size = config['batch_size']
-        self.hidden_size = config['hidden_size']
-        self.vocab_size = config['vocab_size']
-        self.attn_size = config['attn_size']
-        self.device = config['device']
+#self.batch_size = config['batch_size']
+#        self.hidden_size = config['hidden_size']
+#        self.vocab_size = config['vocab_size']
+#        self.attn_size = config['attn_size']
+#        self.device = config['device']
 
-        self.encoder = Encoder(config['depth'], config['n_blocks'], config['growth_rate'])
+#        self.encoder = Encoder(config['depth'], config['n_blocks'], config['growth_rate'])
 
 default_config = {
   'batch_size': 64,
   'hidden_size': 256,
-  'vocab_size': len(VNOnDBData.get_alphabets('./data/VNOnDB/all_word.csv'))
+  'vocab_size': len(VNOnDBData.get_alphabets('./data/VNOnDB/all_word.csv')),
+  'attn_size': 256,
   'n_epochs_decrease_lr': 15,
   'start_learning_rate': 0.00000001,
   'end_learning_rate': 0.00000000001,
-  'gpu': True,
-  'dense_depth': 4,
+  'device': 'cuda',
+  'depth': 4,
   'n_blocks': 3,
   'growth_rate': 96,
 }
 
 def run():
-    config_path = os.path.join('models', args.config)
+    #config_path = os.path.join('models', args.config)
     config = default_config
 
-    if not os.path.exists(config_path):
-        raise FileNotFoundError
+    #if not os.path.exists(config_path):
+    #    raise FileNotFoundError
 
-    with open(config_path, 'r') as f:
-        config = json.load(f)
+    #with open(config_path, 'r') as f:
+    #    config = json.load(f)
 
-    config['gpu'] = torch.cuda.is_available()
+    config['device'] = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = config['batch_size']
 
     image_transform, label_transform = get_transforms()
@@ -144,8 +145,7 @@ def run():
     # Models
     model = Model(config)
 
-    if config['gpu']:
-        model = model.cuda()
+    model = model.to(config['device'])
 
     # Optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=config['start_learning_rate'])
@@ -177,7 +177,7 @@ def run():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str)
+    #parser.add_argument('--config', type=str)
     parser.add_argument('--epochs', default=20, type=int)
     args, _ = parser.parse_known_args()
     run()

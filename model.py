@@ -71,7 +71,7 @@ class AttnDecoder(nn.Module):
         super(AttnDecoder, self).__init__()
 
         self.batch_size = batch_size
-        self.encoder_features = feature_size
+        self.feature_size = feature_size
         self.hidden_size = hidden_size
         self.vocab_size = vocab_size
         self.attn_size = attn_size
@@ -87,7 +87,7 @@ class AttnDecoder(nn.Module):
             self.hidden_size,
             self.attn_size)
 
-        self.decoder_output_fn = F.log_softmax if config.get('loss', 'NLL') == 'NLL' else None
+        #self.decoder_output_fn = F.log_softmax if config.get('loss', 'NLL') == 'NLL' else None
         self.character_distribution = nn.Linear(self.hidden_size, self.vocab_size)
 
     def init_hidden(self):

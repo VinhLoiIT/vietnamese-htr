@@ -15,8 +15,6 @@ class VNOnDB(Dataset):
         self.image_transform = image_transform
         self.label_transform = label_transform
 
-        self.int2char = VNOnDB.alphabets()
-        
     def __len__(self):
         return len(self.df)
     
@@ -46,8 +44,8 @@ class VNOnDBData:
         df = pd.read_csv(csv_file, sep='\t')
         words_list = df.loc[:, 'label'].astype(str)
         for word in words_list.values:
-            alphabets = letters.union(set(list(word)))
-        alphabets += ['<start>', '<end>']
+            alphabets = alphabets.union(set(list(word)))
+        alphabets = list(alphabets) + ['<start>', '<end>']
         return alphabets
     
     def encode(self, characters: list):
@@ -128,7 +126,7 @@ def get_transforms():
     ])
 
     label_transform = transforms.Compose([
-        transforms.Lambda(lambda label: list(label) + [eos_char]),
+        transforms.Lambda(lambda label: list(label)),
     ])
     
     return image_transform, label_transform
