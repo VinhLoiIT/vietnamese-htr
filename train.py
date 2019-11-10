@@ -8,11 +8,12 @@ import json
 import os
 
 from model import Model
-from dataset import VNOnDB, VNOnDBData, to_batch, get_transforms
+from dataset import VNOnDB, VNOnDBData, to_batch
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
+from torchvision import transforms
 
 def mask_3d(inputs, seq_len, mask_value=0.):
     assert inputs.size(0) == len(seq_len)
@@ -109,7 +110,6 @@ def evaluate(model, val_loader):
 default_config = {
   'batch_size': 64,
   'hidden_size': 256,
-  'vocab_size': len(VNOnDBData.get_alphabets('./data/VNOnDB/all_word.csv')),
   'attn_size': 256,
   'n_epochs_decrease_lr': 15,
   'start_learning_rate': 0.00000001,
@@ -133,7 +133,21 @@ def run():
     config['device'] = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = config['batch_size']
 
-    image_transform, label_transform = get_transforms()
+    all_data = VNOnDBData('./data/VNOnDB/train_word.csv')
+
+    image_transform = transforms.Compose([
+        transforms.Resize((320, 480)),
+        transforms.Grayscale(3),
+        transforms.ToTensor(),
+    ])
+
+    label_transform = transforms.Compose([
+        transforms.Lambda(lambda label: list(label) + [VNOnDBData.eos_char]),
+        transforms.Lambda(lambda label: [all_data.char2int[character] for character in label]),
+        transforms.Lambda(lambda label: all_data.int2onehot(label)),
+        transforms.ToTensor(),
+    ])
+
     train_data = VNOnDB('./data/VNOnDB/word_train', './data/VNOnDB/train_word.csv', image_transform=image_transform, label_transform=label_transform)
     validation_data = VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv', image_transform=image_transform, label_transform=label_transform)
     test_data = VNOnDB('./data/VNOnDB/word_test', './data/VNOnDB/test_word.csv')
@@ -143,7 +157,7 @@ def run():
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, collate_fn=to_batch)
 
     # Models
-    model = Model(config)
+    model = Model(config, all_data)
 
     model = model.to(config['device'])
 

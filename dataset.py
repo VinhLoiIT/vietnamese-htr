@@ -4,7 +4,7 @@ import os
 from PIL import Image
 import pdb
 import torch
-from torchvision import transforms
+
 from torch.utils.data import Dataset
 
 class VNOnDB(Dataset):
@@ -33,8 +33,13 @@ class VNOnDB(Dataset):
         return image, label
 
 class VNOnDBData:
+
+    sos_char = '<start>' # start of sequence character
+    eos_char = '<end>' # end of sequence character
+
     def __init__(self, all_csv):
         self.alphabets = VNOnDBData.get_alphabets(all_csv)
+        self.alphabets += [VNOnDBData.sos_char, VNOnDBData.eos_char]
         self.char2int = dict((c, i) for i, c in enumerate(self.alphabets))
         self.int2char = dict((i, c) for i, c in enumerate(self.alphabets))
 
@@ -45,7 +50,7 @@ class VNOnDBData:
         words_list = df.loc[:, 'label'].astype(str)
         for word in words_list.values:
             alphabets = alphabets.union(set(list(word)))
-        alphabets = list(alphabets) + ['<start>', '<end>']
+        alphabets = list(alphabets)
         return alphabets
     
     def encode(self, characters: list):
@@ -54,16 +59,20 @@ class VNOnDBData:
         """
         return np.array([[self.char2int[char]] for char in characters])
 
-    def to_one_hot(self, encoded_characters):
-        result = np.zeros((len(encoded_characters), len(alphabets)))
-        for i, char_int in enumerate(encoded_characters):
+    @staticmethod
+    def onehot2int(one_hot_vectors):
+        return np.array([[np.argmax(vector)] for vector in one_hot_vectors])
+
+    def int2onehot(self, character_ints):
+        result = np.zeros((len(character_ints), len(self.alphabets)))
+        for i, char_int in enumerate(character_ints):
             result[i, char_int] = 1
         return result
 
 
     def decode(self, one_hot_vectors):
-        string = ''.join(int_to_char[np.argmax(vector)] for vector in one_hot_vectors)
-        string = string.replace(eos_char, '')
+        string = ''.join(self.int2char[np.argmax(vector)] for vector in one_hot_vectors)
+        string = string.replace(VNOnDBData.eos_char, '')
         return string
 
     # def alphabets(csv_file):
@@ -81,7 +90,6 @@ class VNOnDBData:
 
     
 def to_batch(samples):
-    pdb.set_trace()
     batch_size = len(samples)
     image_samples, label_samples = list(zip(*samples))
     # image_samples: list of [C, H, W]
@@ -98,17 +106,19 @@ def to_batch(samples):
         batch_image[i, :, :image_row, :image_col] = image
 
     # batch_label: [T, B, 1]
-    label_lengths = np.array([len(label) for label in label_samples])
+    label_lengths = np.array([label.size(1) for label in label_samples])
     max_length = label_lengths.max()
     
     label_lengths = torch.from_numpy(label_lengths).unsqueeze(-1) # [B, 1]
 
     batch_label = np.zeros((batch_size, max_length, 1)) # [B, T, 1]
-    for i, label in enumerate(label_samples): # label: list
-        batch_label[i, :len(label)] = encode(label)
-#     pdb.set_trace()
+    batch_label_one_hot = np.zeros((batch_size, max_length, label_samples[0].size(2)))
+    for i, label in enumerate(label_samples): # label: tensor [1, T, V]
+        batch_label[i, :label.size(1)] = VNOnDBData.onehot2int(label[0].numpy())
+        batch_label_one_hot[[i], :label.size(1)] = label
+
     batch_label = torch.from_numpy(batch_label).long() # [B, T, 1]
-    batch_label_one_hot = torch.stack([torch.from_numpy(to_one_hot(label.numpy())) for label in batch_label]) # [B, T, V]
+    batch_label_one_hot = torch.from_numpy(batch_label_one_hot) # [B, T, V]
 
     # sort by decreasing lengths
     label_lengths, sorted_idx = label_lengths.squeeze(-1).sort(descending=True) # [B, 1]
@@ -116,17 +126,4 @@ def to_batch(samples):
     batch_label = batch_label[sorted_idx].transpose(0, 1) # [T, B, 1]
     batch_label_one_hot = batch_label_one_hot[sorted_idx].transpose(0, 1) # [T, B, V]
 
-    return batch_image, batch_label, batch_label_one_hot, label_lengths
-
-def get_transforms():
-    image_transform = transforms.Compose([
-        transforms.Resize((320, 480)),
-        transforms.Grayscale(3),
-        transforms.ToTensor(),
-    ])
-
-    label_transform = transforms.Compose([
-        transforms.Lambda(lambda label: list(label)),
-    ])
-    
-    return image_transform, label_transform
+    return batch_image.float(), batch_label.long(), batch_label_one_hot.float(), label_lengths.long()

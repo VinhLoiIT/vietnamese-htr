@@ -3,6 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 
+import pdb
+from dataset import VNOnDBData
+
 class Encoder(nn.Module):
     '''
     Input: Batch image [batch_size, channels, height, width]
@@ -60,7 +63,7 @@ class Attention(nn.Module):
         :return score: [T, B, 1]
         '''
 
-        out = F.tanh(self.Wa(encoder_outputs) + self.Ua(last_hidden)) # [T, B, A]
+        out = torch.tanh(self.Wa(encoder_outputs) + self.Ua(last_hidden)) # [T, B, A]
         return self.va(out) # [T, B, 1]
 
 class AttnDecoder(nn.Module):
@@ -77,7 +80,7 @@ class AttnDecoder(nn.Module):
         self.attn_size = attn_size
 
         self.rnn = nn.GRU(
-            input_size=self.vocab_size+self.hidden_size,
+            input_size=self.vocab_size+self.feature_size,
             hidden_size=self.hidden_size,
         )
 
@@ -95,21 +98,18 @@ class AttnDecoder(nn.Module):
 
     def forward(self, input_one_hot, prev_hidden, encoder_outputs):
         '''
-        :param input: [1, B, V]
+        :param input_one_hot: [1, B, V]
         :param prev_hidden: [1, B, H]
         :param encoder_outputs: [T, B, C]
         :return: output [1, B, V], prev_hidden [1, B, H], weights [T, B, 1]
         '''
-
-        assert input.size() == torch.Size([self.batch_size, 1, self.vocab_size])
-        assert prev_hidden.size() == torch.Size([self.batch_size, self.hidden_size, 1])
 
         # Attention weights
         weights = self.attention(prev_hidden, encoder_outputs) # [T, B, 1]
         context = (weights * encoder_outputs).sum(0, keepdim=True) # [1, B, C]
 
         # embed characters
-        rnn_input = torch.cat((input, context), -1) # [1, B, V+C]
+        rnn_input = torch.cat((input_one_hot, context), -1) # [1, B, V+C]
 
         outputs, hidden = self.rnn(rnn_input, prev_hidden) # [1, B, H], [1, B, H]
 
@@ -124,14 +124,14 @@ class AttnDecoder(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, dataset_all):
         super(Model, self).__init__()
 
         self.batch_size = config['batch_size']
         self.hidden_size = config['hidden_size']
-        self.vocab_size = config['vocab_size']
         self.attn_size = config['attn_size']
         self.device = config['device']
+        self.vocab_size = len(dataset_all.alphabets)
 
         self.encoder = Encoder(config['depth'], config['n_blocks'], config['growth_rate'])
         self.feature_size = self.encoder.n_features
@@ -142,6 +142,8 @@ class Model(nn.Module):
             self.hidden_size,
             self.vocab_size,
             self.attn_size)
+
+        self.dataset_all = dataset_all
 
 
     def forward(self, inputs, targets, targets_lengths):
@@ -154,17 +156,21 @@ class Model(nn.Module):
         :outputs: [T, B, V]
         :weights: [T, B, 1]
         '''
-        pdb.set_trace()
 
         encoder_outputs = self.encoder(inputs) # [B, C', H', W']
         encoder_outputs = encoder_outputs.view(self.batch_size, self.feature_size, -1) # [B, C', H' x W'] == [B, C', T]
-        encoder_outputs.permute_(2, 0, 1) # [T, B, C']
+        encoder_outputs = encoder_outputs.permute(2, 0, 1) # [T, B, C']
 
         max_length = targets.size(0)
-        outputs = torch.zeros(max_length, self.batch_size, self.vocab_size).to(self.device)
-        weights = torch.zeros(max_length, self.batch_size, 1).to(self.device)
+        # outputs = torch.zeros(max_length, self.batch_size, self.vocab_size).to(self.device)
+        # weights = torch.zeros(max_length, self.batch_size, 1).to(self.device)
+        outputs = []
+        weights = []
 
-        decoder_input = '<sos>'
+        decoder_input = self.dataset_all.char2int[VNOnDBData.sos_char]
+        decoder_input = self.dataset_all.int2onehot([decoder_input])
+        decoder_input = torch.from_numpy(decoder_input).unsqueeze(0).float() # [1, 1, V]
+        decoder_input = decoder_input.repeat(1, self.batch_size, 1) # [1, B, V]
         hidden = self.decoder.init_hidden().to(self.device)
 
         for t in range(max_length):
@@ -181,5 +187,9 @@ class Model(nn.Module):
             # else:
             #     # TODO
             #     raise NotImplementedError
+
+        pdb.set_trace()
+        outputs = torch.cat(outputs, dim=0).long()   # [max_length, B, V]
+        weights = torch.stack(weights, dim=0)         # [max_length, T, B, 1]
 
         return outputs, weights
