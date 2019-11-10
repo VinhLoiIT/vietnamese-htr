@@ -11,7 +11,7 @@ class VNOnDB(Dataset):
     def __init__(self, root_dir, csv_file, image_transform=None, label_transform=None):
         self.root_dir = root_dir
         
-        self.df = pd.read_csv(csv_file, sep='\t')
+        self.df = pd.read_csv(csv_file, sep='\t', keep_default_na=False, index_col=0)
         self.image_transform = image_transform
         self.label_transform = label_transform
 

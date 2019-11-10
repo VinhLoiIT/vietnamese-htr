@@ -170,7 +170,7 @@ class Model(nn.Module):
         decoder_input = self.dataset_all.char2int[VNOnDBData.sos_char]
         decoder_input = self.dataset_all.int2onehot([decoder_input])
         decoder_input = torch.from_numpy(decoder_input).unsqueeze(0).float() # [1, 1, V]
-        decoder_input = decoder_input.repeat(1, self.batch_size, 1) # [1, B, V]
+        decoder_input = decoder_input.repeat(1, self.batch_size, 1).to(self.device) # [1, B, V]
         hidden = self.decoder.init_hidden().to(self.device)
 
         for t in range(max_length):
@@ -188,8 +188,8 @@ class Model(nn.Module):
             #     # TODO
             #     raise NotImplementedError
 
-        pdb.set_trace()
-        outputs = torch.cat(outputs, dim=0).long()   # [max_length, B, V]
+        #pdb.set_trace()
+        outputs = torch.cat(outputs, dim=0)   # [max_length, B, V]
         weights = torch.stack(weights, dim=0)         # [max_length, T, B, 1]
 
         return outputs, weights

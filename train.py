@@ -6,7 +6,8 @@ import tqdm
 import argparse
 import json
 import os
-
+import pdb
+from PIL import Image
 from model import Model
 from dataset import VNOnDB, VNOnDBData, to_batch
 import torch
@@ -50,8 +51,6 @@ def train(model, optimizer, train_loader, state):
     for (batch_image, targets, targets_one_hot, targets_lengths) in t:
         t.set_description('Epoch {:.0f}/{:.0f} (train={})'.format(epoch, n_epochs, model.training))
 
-        
-
         batch_image = batch_image.to(device)
         targets = targets.to(device)
         targets_one_hot = targets_one_hot.to(device)
@@ -62,8 +61,10 @@ def train(model, optimizer, train_loader, state):
         # weights: [T, B, 1]
 
         outputs = mask_3d(outputs.transpose(1, 0), targets_lengths, mask_value)
-        outputs = outputs.contiguous().view(-1, self.vocab_size)
+        outputs = outputs.contiguous().view(-1, len(all_data.alphabets))
 
+        #pdb.set_trace()
+        targets = targets.view(-1)
         loss = criterion(outputs, targets)
         losses.append(loss.item())
         # Reset gradients
@@ -128,7 +129,20 @@ default_config = {
   'growth_rate': 96,
 }
 
+class ScaleByHeight(object):
+    def __init__(self, target_height):
+        self.target_height = target_height
+
+    def __call__(self, image):
+        width, height = image.size
+        factor = self.target_height / height
+        new_width = int(width * factor)
+        new_height = int(height * factor)
+        image = image.resize((new_width, new_height))
+        return image
+
 def run():
+    global all_data
     #config_path = os.path.join('models', args.config)
     config = default_config
 
@@ -144,7 +158,8 @@ def run():
     all_data = VNOnDBData('./data/VNOnDB/train_word.csv')
 
     image_transform = transforms.Compose([
-        transforms.Resize((320, 480)),
+        #transforms.Resize((320, 480)),
+        ScaleByHeight(32),
         transforms.Grayscale(3),
         transforms.ToTensor(),
     ])
