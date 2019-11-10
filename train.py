@@ -76,7 +76,7 @@ def train(model, optimizer, train_loader, state):
         t.set_postfix(loss='{:05.3f}'.format(loss.item()), avg_loss='{:05.3f}'.format(np.mean(losses)))
         t.update()
 
-    return model, optimizer
+    return model, optimizer, loss
     # print(' End of training:  loss={:05.3f} , cer={:03.1f}'.format(np.mean(losses), np.mean(cers)*100))
 
 
@@ -89,17 +89,22 @@ def evaluate(model, val_loader):
     model.eval()
 
     with torch.no_grad():
-        for batch in t:
+        for batch_image, targets, targets_one_hot, targets_lengths in t:
             t.set_description(' Evaluating... (train={})'.format(model.training))
-            loss, logits, labels, alignments = model.loss(batch)
-            preds = logits.detach().cpu().numpy()
+
+            batch_image = batch_image.to(device)
+            targets = targets.to(device)
+            targets_one_hot = targets_one_hot.to(device)
+            targets_lengths = targets_lengths.to(device)
+
+            outputs, weights = model(batch_image, targets_one_hot, targets_lengths)
+            
             # acc = np.sum(np.argmax(preds, -1) == labels.detach().cpu().numpy()) / len(preds)
             acc = 100 * editdistance.eval(np.argmax(preds, -1), labels.detach().cpu().numpy()) / len(preds)
             losses.append(loss.item())
             accs.append(acc)
             t.set_postfix(avg_acc='{:05.3f}'.format(np.mean(accs)), avg_loss='{:05.3f}'.format(np.mean(losses)))
             t.update()
-        align = alignments.detach().cpu().numpy()[:, :, 0]
 
     # Uncomment if you want to visualise weights
     # fig, ax = plt.subplots(1, 1)
@@ -108,16 +113,8 @@ def evaluate(model, val_loader):
     print('  End of evaluation : loss {:05.3f} , acc {:03.1f}'.format(np.mean(losses), np.mean(accs)))
     # return {'loss': np.mean(losses), 'cer': np.mean(accs)*100}
 
-#self.batch_size = config['batch_size']
-#        self.hidden_size = config['hidden_size']
-#        self.vocab_size = config['vocab_size']
-#        self.attn_size = config['attn_size']
-#        self.device = config['device']
-
-#        self.encoder = Encoder(config['depth'], config['n_blocks'], config['growth_rate'])
-
 default_config = {
-  'batch_size': 64,
+  'batch_size': 31,
   'hidden_size': 256,
   'attn_size': 256,
   'n_epochs_decrease_lr': 15,
@@ -140,6 +137,15 @@ class ScaleByHeight(object):
         new_height = int(height * factor)
         image = image.resize((new_width, new_height))
         return image
+
+class LabelToOneHot(object):
+    def __init__(self, all_data):
+        self.all_data = all_data
+
+    def __call__(self, label):
+        label = list(label) + [VNOnDBData.eos_char]
+        label = [self.all_data.char2int[character] for character in label]
+        return self.all_data.int2onehot(label)
 
 def run():
     global all_data
@@ -165,9 +171,7 @@ def run():
     ])
 
     label_transform = transforms.Compose([
-        transforms.Lambda(lambda label: list(label) + [VNOnDBData.eos_char]),
-        transforms.Lambda(lambda label: [all_data.char2int[character] for character in label]),
-        transforms.Lambda(lambda label: all_data.int2onehot(label)),
+        LabelToOneHot(all_data),
         transforms.ToTensor(),
     ])
 
@@ -175,9 +179,9 @@ def run():
     validation_data = VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv', image_transform=image_transform, label_transform=label_transform)
     test_data = VNOnDB('./data/VNOnDB/word_test', './data/VNOnDB/test_word.csv')
 
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=to_batch)
-    val_loader = DataLoader(validation_data, batch_size=batch_size, shuffle=False, collate_fn=to_batch)
-    test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, collate_fn=to_batch)
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=to_batch, num_workers=10)
+    val_loader = DataLoader(validation_data, batch_size=1, shuffle=False, collate_fn=to_batch)
+    test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=to_batch)
 
     # Models
     model = Model(config, all_data)
@@ -206,8 +210,10 @@ def run():
         run_state = (epoch, args.epochs)
 
         # Train needs to return model and optimizer, otherwise the model keeps restarting from zero at every epoch
-        model, optimizer = train(model, optimizer, train_loader, run_state)
-        evaluate(model, val_loader)
+        model, optimizer, loss = train(model, optimizer, train_loader, run_state)
+        save_checkpoint(model, optimizer, loss, epoch, './ckpt')
+
+        #evaluate(model, val_loader)
 
         # TODO implement save models function
 

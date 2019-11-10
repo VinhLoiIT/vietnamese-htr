@@ -162,8 +162,6 @@ class Model(nn.Module):
         encoder_outputs = encoder_outputs.permute(2, 0, 1) # [T, B, C']
 
         max_length = targets.size(0)
-        # outputs = torch.zeros(max_length, self.batch_size, self.vocab_size).to(self.device)
-        # weights = torch.zeros(max_length, self.batch_size, 1).to(self.device)
         outputs = []
         weights = []
 
