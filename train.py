@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
 from torchvision import transforms
+from utils import CER, WER, save_checkpoint, load_checkpoint, convert_to_text
 
 def mask_3d(inputs, seq_len, mask_value=0.):
     assert inputs.size(0) == len(seq_len)
@@ -27,6 +28,21 @@ def mask_3d(inputs, seq_len, mask_value=0.):
                 assert len(inputs.size()) == 2, 'The size of inputs must be 2 or 3, received {}'.format(inputs.size())
                 inputs[n, idx.int():] = mask_value
     return inputs
+
+
+default_config = {
+#   'batch_size': 31,
+  'hidden_size': 256,
+  'attn_size': 256,
+  'max_length': 10,
+  'n_epochs_decrease_lr': 15,
+  'start_learning_rate': 0.00000001,
+  'end_learning_rate': 0.00000000001,
+  'device': 'cuda',
+  'depth': 4,
+  'n_blocks': 3,
+  'growth_rate': 96,
+}
 
 
 def train(model, optimizer, train_loader, state):
@@ -87,6 +103,7 @@ def evaluate(model, val_loader):
 
     t = tqdm.tqdm(val_loader)
     model.eval()
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     with torch.no_grad():
         for batch_image, targets, targets_one_hot, targets_lengths in t:
@@ -97,13 +114,17 @@ def evaluate(model, val_loader):
             targets_one_hot = targets_one_hot.to(device)
             targets_lengths = targets_lengths.to(device)
 
+            pdb.set_trace()
             outputs, weights = model(batch_image, targets_one_hot, targets_lengths)
             
+            outputs = convert_to_text(outputs) # list of [T, 1] which T is variable length
+            targets = convert_to_text(targets) # list of [T', 1] which T' is variable length
+
             # acc = np.sum(np.argmax(preds, -1) == labels.detach().cpu().numpy()) / len(preds)
-            acc = 100 * editdistance.eval(np.argmax(preds, -1), labels.detach().cpu().numpy()) / len(preds)
+            wer = np.mean(WER(outputs, targets))
             losses.append(loss.item())
-            accs.append(acc)
-            t.set_postfix(avg_acc='{:05.3f}'.format(np.mean(accs)), avg_loss='{:05.3f}'.format(np.mean(losses)))
+            wers.append(wer)
+            t.set_postfix(avg_wer='{:05.3f}'.format(np.mean(wers)), avg_loss='{:05.3f}'.format(np.mean(losses)))
             t.update()
 
     # Uncomment if you want to visualise weights
@@ -112,19 +133,6 @@ def evaluate(model, val_loader):
     # fig.savefig('data/att.png')
     print('  End of evaluation : loss {:05.3f} , acc {:03.1f}'.format(np.mean(losses), np.mean(accs)))
     # return {'loss': np.mean(losses), 'cer': np.mean(accs)*100}
-
-default_config = {
-  'batch_size': 31,
-  'hidden_size': 256,
-  'attn_size': 256,
-  'n_epochs_decrease_lr': 15,
-  'start_learning_rate': 0.00000001,
-  'end_learning_rate': 0.00000000001,
-  'device': 'cuda',
-  'depth': 4,
-  'n_blocks': 3,
-  'growth_rate': 96,
-}
 
 class ScaleByHeight(object):
     def __init__(self, target_height):
@@ -159,7 +167,7 @@ def run():
     #    config = json.load(f)
 
     config['device'] = 'cuda' if torch.cuda.is_available() else 'cpu'
-    batch_size = config['batch_size']
+    # batch_size = config['batch_size']
 
     all_data = VNOnDBData('./data/VNOnDB/train_word.csv')
 
@@ -179,9 +187,9 @@ def run():
     validation_data = VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv', image_transform=image_transform, label_transform=label_transform)
     test_data = VNOnDB('./data/VNOnDB/word_test', './data/VNOnDB/test_word.csv')
 
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=to_batch, num_workers=10)
-    val_loader = DataLoader(validation_data, batch_size=1, shuffle=False, collate_fn=to_batch)
-    test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=to_batch)
+    train_loader = DataLoader(train_data, batch_size=31, shuffle=True, collate_fn=to_batch, num_workers=8)
+    val_loader = DataLoader(validation_data, batch_size=1, shuffle=False, collate_fn=to_batch, num_workers=8)
+    test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=to_batch, num_workers=8)
 
     # Models
     model = Model(config, all_data)
@@ -206,16 +214,20 @@ def run():
     #     elif 'weight' in name:
     #         torch.nn.init.xavier_normal_(param)
 
-    for epoch in range(args.epochs):
-        run_state = (epoch, args.epochs)
+    # model, optimizer, loss, _ = load_checkpoint(config, all_data, './ckpt/6.pt')
+    # model = model.to(config['device'])
+    evaluate(model, val_loader)
 
-        # Train needs to return model and optimizer, otherwise the model keeps restarting from zero at every epoch
-        model, optimizer, loss = train(model, optimizer, train_loader, run_state)
-        save_checkpoint(model, optimizer, loss, epoch, './ckpt')
+    # for epoch in range(args.epochs):
+    #     run_state = (epoch, args.epochs)
 
-        #evaluate(model, val_loader)
+    #     # Train needs to return model and optimizer, otherwise the model keeps restarting from zero at every epoch
+    #     model, optimizer, loss = train(model, optimizer, train_loader, run_state)
+    #     save_checkpoint(model, optimizer, loss, epoch, './ckpt')
 
-        # TODO implement save models function
+    #     #evaluate(model, val_loader)
+
+    #     # TODO implement save models function
 
 
 if __name__ == '__main__':
@@ -224,7 +236,3 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', default=20, type=int)
     args, _ = parser.parse_known_args()
     run()
-
-
-
-
