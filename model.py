@@ -33,12 +33,12 @@ class Attention(nn.Module):
     Returns:
         attention_weights: [batch_size, max_time, 1]
     '''
-    def __init__(self, batch_size, feature_size, hidden_size, attn_size):
+    def __init__(self, feature_size, hidden_size, attn_size):
         super(Attention, self).__init__()
         self.hidden_size = hidden_size
         self.Wa = nn.Linear(feature_size, attn_size, bias=False)
         self.Ua = nn.Linear(hidden_size, attn_size, bias=False)
-        self.va = nn.Linear(attn_size, 1)
+        self.va = nn.Linear(attn_size, 1, bias=False)
 
     def forward(self, last_hidden, encoder_outputs):#, seq_len=None):
         '''
@@ -70,10 +70,9 @@ class AttnDecoder(nn.Module):
     '''
     Decode one character at a time
     '''
-    def __init__(self, batch_size, feature_size, hidden_size, vocab_size, attn_size):
+    def __init__(self, feature_size, hidden_size, vocab_size, attn_size):
         super(AttnDecoder, self).__init__()
 
-        self.batch_size = batch_size
         self.feature_size = feature_size
         self.hidden_size = hidden_size
         self.vocab_size = vocab_size
@@ -85,7 +84,6 @@ class AttnDecoder(nn.Module):
         )
 
         self.attention = Attention(
-            self.batch_size,
             self.feature_size,
             self.hidden_size,
             self.attn_size)
@@ -93,8 +91,8 @@ class AttnDecoder(nn.Module):
         #self.decoder_output_fn = F.log_softmax if config.get('loss', 'NLL') == 'NLL' else None
         self.character_distribution = nn.Linear(self.hidden_size, self.vocab_size)
 
-    def init_hidden(self):
-        return torch.zeros(1, self.batch_size, self.hidden_size)
+    def init_hidden(self, batch_size):
+        return torch.zeros(1, batch_size, self.hidden_size)
 
     def forward(self, input_one_hot, prev_hidden, encoder_outputs):
         '''
@@ -127,17 +125,16 @@ class Model(nn.Module):
     def __init__(self, config, dataset_all):
         super(Model, self).__init__()
 
-        self.batch_size = config['batch_size']
         self.hidden_size = config['hidden_size']
         self.attn_size = config['attn_size']
         self.device = config['device']
+        self.max_length = config['max_length']
         self.vocab_size = len(dataset_all.alphabets)
 
         self.encoder = Encoder(config['depth'], config['n_blocks'], config['growth_rate'])
         self.feature_size = self.encoder.n_features
 
         self.decoder = AttnDecoder(
-            self.batch_size,
             self.feature_size,
             self.hidden_size,
             self.vocab_size,
@@ -146,7 +143,7 @@ class Model(nn.Module):
         self.dataset_all = dataset_all
 
 
-    def forward(self, inputs, targets, targets_lengths):
+    def forward(self, inputs, targets=None, targets_lengths=None):
         '''
         Input:
         :param inputs: [B, C, H, W]
@@ -157,19 +154,27 @@ class Model(nn.Module):
         :weights: [T, B, 1]
         '''
 
+        batch_size = inputs.size(0)
         encoder_outputs = self.encoder(inputs) # [B, C', H', W']
-        encoder_outputs = encoder_outputs.view(self.batch_size, self.feature_size, -1) # [B, C', H' x W'] == [B, C', T]
+        encoder_outputs = encoder_outputs.view(batch_size, self.feature_size, -1) # [B, C', H' x W'] == [B, C', T]
         encoder_outputs = encoder_outputs.permute(2, 0, 1) # [T, B, C']
 
-        max_length = targets.size(0)
         outputs = []
         weights = []
 
         decoder_input = self.dataset_all.char2int[VNOnDBData.sos_char]
         decoder_input = self.dataset_all.int2onehot([decoder_input])
         decoder_input = torch.from_numpy(decoder_input).unsqueeze(0).float() # [1, 1, V]
-        decoder_input = decoder_input.repeat(1, self.batch_size, 1).to(self.device) # [1, B, V]
-        hidden = self.decoder.init_hidden().to(self.device)
+        decoder_input = decoder_input.repeat(1, batch_size, 1).to(self.device) # [1, B, V]
+        hidden = self.decoder.init_hidden(batch_size).to(self.device)
+
+        if self.training:
+            assert targets is not None and targets_lengths is not None
+            max_length = targets.size(0)
+            decoder_input_fn = self._input_training
+        else:
+            max_length = self.max_length
+            decoder_input_fn = self._input_eval
 
         for t in range(max_length):
             output, hidden, weight = self.decoder(
@@ -177,17 +182,21 @@ class Model(nn.Module):
                 prev_hidden=hidden,
                 encoder_outputs=encoder_outputs)
 
+            decoder_input = decoder_input_fn(t, output, targets)
+
             outputs.append(output)
             weights.append(weight)
-
-            # if teacher_forcing:
-            decoder_input = targets[[t]]
-            # else:
-            #     # TODO
-            #     raise NotImplementedError
 
         #pdb.set_trace()
         outputs = torch.cat(outputs, dim=0)   # [max_length, B, V]
         weights = torch.stack(weights, dim=0)         # [max_length, T, B, 1]
 
         return outputs, weights
+
+    def _input_training(self, timestep, prev_output, targets=None):
+        decoder_input = targets[[timestep]]
+        return decoder_input # [1, B, V]
+
+    def _input_eval(self, timestep, prev_output, targets=None):
+        decoder_input = prev_output
+        return decoder_input # [1, B, V]
