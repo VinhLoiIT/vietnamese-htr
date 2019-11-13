@@ -46,7 +46,7 @@ default_config = {
 }
 MAX_LENGTH = 10
 
-all_data = VNOnDBData('./data/VNOnDB/train_word.csv')
+all_data = VNOnDBData('./data/VNOnDB/all_word.csv') #replace train_word by all_word
 
 image_transform = transforms.Compose([
     transforms.Grayscale(3),
@@ -139,7 +139,7 @@ def evaluate(model, criterion, val_loader, max_length=MAX_LENGTH):
             # pdb.set_trace()
             outputs = mask_3d(outputs, decoded_lengths, 0)
             outputs = outputs.view(-1, all_data.vocab_size)
-            targets = targets.view(-1).long()               
+            targets = targets.view(-1).long()
 
             loss = criterion(outputs, targets)
 
@@ -148,6 +148,8 @@ def evaluate(model, criterion, val_loader, max_length=MAX_LENGTH):
 
             t.set_postfix(avg_accs=f'{np.mean(accs):05.3f}', avg_loss=f'{np.mean(losses):05.3f}')
             t.update()
+        print(f'Targets[batch_val-1][0]: {targets[0]}')
+        print(f'Outputs[batch_val-1][0]: {outputs[0]}')
 
 def run():
     global all_data
