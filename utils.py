@@ -4,6 +4,7 @@ import numpy as np
 from model import Model
 import editdistance as ed
 import pdb
+from dataset import VNOnDBData
 
 def save_checkpoint(model, optimizer, loss, epoch, ckpt_dir):
     info = {
@@ -52,7 +53,7 @@ def WER(outputs, targets):
     wer = [0 if outputs[i].size(0) == targets[i].size(0) and torch.eq(outputs[i], targets[i]) else 1 for i in range(batch_size)]
     return wer
 
-def convert_to_text(tensor: torch.Tensor, dataset_all):
+def convert_to_text(tensor: torch.Tensor, dataset_all, device):
     '''
     :param tensor: [T, B, V]
     :return: list of [T, 1]
@@ -62,9 +63,30 @@ def convert_to_text(tensor: torch.Tensor, dataset_all):
 
     tensor, _ = tensor.max(dim=-1, keepdim=True) # [B, T, 1]
     eos = dataset_all.char2int[VNOnDBData.eos_char]
-    eos = torch.tensor([[eos]]) # [1, 1]
+    eos = torch.tensor([[eos]]).to(device) # [1, 1]
     for i, item in enumerate(tensor):
         if torch.eq(item, eos):
             results.append(item[:i+1]) # including eos
 
     return results
+
+class ScaleImageByHeight(object):
+    def __init__(self, target_height):
+        self.target_height = target_height
+
+    def __call__(self, image):
+        width, height = image.size
+        factor = self.target_height / height
+        new_width = int(width * factor)
+        new_height = int(height * factor)
+        image = image.resize((new_width, new_height))
+        return image
+
+class LabelToInt(object):
+    def __init__(self, all_data):
+        self.all_data = all_data
+
+    def __call__(self, label):
+        label = list(label)
+        label = [self.all_data.char2int[character] for character in label]
+        return label

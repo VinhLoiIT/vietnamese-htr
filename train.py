@@ -9,24 +9,26 @@ import os
 import pdb
 from PIL import Image
 from model import Model
-from dataset import VNOnDB, VNOnDBData, to_batch
+from dataset import VNOnDB, VNOnDBData, collate_fn
 import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.nn.utils.rnn import pack_padded_sequence
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
 from torchvision import transforms
-from utils import CER, WER, save_checkpoint, load_checkpoint, convert_to_text
+from utils import CER, WER, save_checkpoint, load_checkpoint, convert_to_text, ScaleImageByHeight, LabelToInt
 
-def mask_3d(inputs, seq_len, mask_value=0.):
-    assert inputs.size(0) == len(seq_len)
-    max_idx = max(seq_len)
-    for n, idx in enumerate(seq_len):
-        if idx < max_idx.item():
-            if len(inputs.size()) == 3:
-                inputs[n, idx.int():, :] = mask_value
-            else:
-                assert len(inputs.size()) == 2, 'The size of inputs must be 2 or 3, received {}'.format(inputs.size())
-                inputs[n, idx.int():] = mask_value
+def mask_3d(inputs, inputs_lens, mask_value=0.):
+    '''
+    :param inputs: [T, B, V]
+    :param inputs_lens: [B, 1]
+    '''
+    max_len = max(inputs_lens)
+    for i, len_ in enumerate(inputs_lens):
+        if len_ < max_len.item():
+            inputs[len_.item():, i, :] = mask_value
     return inputs
 
 
@@ -38,61 +40,71 @@ default_config = {
   'n_epochs_decrease_lr': 15,
   'start_learning_rate': 0.00000001,
   'end_learning_rate': 0.00000000001,
-  'device': 'cuda',
   'depth': 4,
   'n_blocks': 3,
   'growth_rate': 96,
 }
+MAX_LENGTH = 10
 
+all_data = VNOnDBData('./data/VNOnDB/train_word.csv')
 
-def train(model, optimizer, train_loader, state):
-    epoch, n_epochs = state
+image_transform = transforms.Compose([
+    transforms.Grayscale(3),
+    ScaleImageByHeight(32),
+    transforms.ToTensor(),
+])
+
+train_data = VNOnDB('./data/VNOnDB/word_train', './data/VNOnDB/train_word.csv', all_data, image_transform=image_transform)
+validation_data = VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv', all_data, image_transform=image_transform)
+test_data = VNOnDB('./data/VNOnDB/word_test', './data/VNOnDB/test_word.csv', all_data, image_transform=image_transform)
+
+train_loader = DataLoader(train_data, batch_size=31, shuffle=True, collate_fn=collate_fn, num_workers=8)
+val_loader = DataLoader(validation_data, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=8)
+test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=8)
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+def train(n_epochs, model, optimizer, criterion, train_loader, max_length=MAX_LENGTH):
 
     losses = []
     cers = []
 
-    criterion = CrossEntropyLoss()
     t = tqdm.tqdm(train_loader)
     model.train()
 
+    for epoch in range(args.epochs):
+        # Train needs to return model and optimizer, otherwise the model keeps restarting from zero at every epoch
+        for (inputs, targets, targets_one_hot, targets_lengths) in t:
+            t.set_description(f'Epoch {epoch}/{n_epochs} (train={model.training})')
 
-    mask_value = 0
-    # if self.loss_type == 'NLL': # ie softmax already on outputs
-    #     mask_value = -float('inf')
-    #     print(torch.sum(logits, dim=2))
-    # else:
-    #     mask_value = 0
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            inputs = inputs.to(device) # [B, C, H, W]
+            targets = targets.float().to(device) # [T, B, 1]
+            targets_one_hot = targets_one_hot.float().to(device) # [T, B, V]
+            targets_lengths = targets_lengths # [B, 1]
 
-    for (batch_image, targets, targets_one_hot, targets_lengths) in t:
-        t.set_description('Epoch {:.0f}/{:.0f} (train={})'.format(epoch, n_epochs, model.training))
+            outputs, weights, decoded_lengths = model.forward(inputs, max_length, targets_one_hot, targets_lengths)
+            # outputs: [T, B, V]
+            # weights: [T, B, 1]
 
-        batch_image = batch_image.to(device)
-        targets = targets.to(device)
-        targets_one_hot = targets_one_hot.to(device)
-        targets_lengths = targets_lengths.to(device)
+            # pdb.set_trace()
+            outputs = mask_3d(outputs, decoded_lengths, 0)
+            outputs = outputs.view(-1, all_data.vocab_size)
+            targets = targets.view(-1).long()               
 
-        outputs, weights = model.forward(batch_image, targets_one_hot, targets_lengths)
-        # outputs: [T, B, V]
-        # weights: [T, B, 1]
+            loss = criterion(outputs, targets)
+            losses.append(loss.item())
+            # Reset gradients
+            optimizer.zero_grad()
+            # Compute gradients
+            loss.backward()
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2)
+            optimizer.step()
+            t.set_postfix(loss='{:05.3f}'.format(losses[-1]), avg_loss='{:05.3f}'.format(np.mean(losses)))
+            t.update()
 
-        outputs = mask_3d(outputs.transpose(1, 0), targets_lengths, mask_value)
-        outputs = outputs.contiguous().view(-1, len(all_data.alphabets))
+        save_checkpoint(model, optimizer, loss, epoch, './ckpt')
 
-        #pdb.set_trace()
-        targets = targets.view(-1)
-        loss = criterion(outputs, targets)
-        losses.append(loss.item())
-        # Reset gradients
-        optimizer.zero_grad()
-        # Compute gradients
-        loss.backward()
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2)
-        optimizer.step()
-        t.set_postfix(loss='{:05.3f}'.format(loss.item()), avg_loss='{:05.3f}'.format(np.mean(losses)))
-        t.update()
-
-    return model, optimizer, loss
+    return model, optimizer, losses
     # print(' End of training:  loss={:05.3f} , cer={:03.1f}'.format(np.mean(losses), np.mean(cers)*100))
 
 
@@ -103,22 +115,21 @@ def evaluate(model, val_loader):
 
     t = tqdm.tqdm(val_loader)
     model.eval()
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     with torch.no_grad():
         for batch_image, targets, targets_one_hot, targets_lengths in t:
             t.set_description(' Evaluating... (train={})'.format(model.training))
 
             batch_image = batch_image.to(device)
-            targets = targets.to(device)
-            targets_one_hot = targets_one_hot.to(device)
+            targets = targets.float().to(device)
+            targets_one_hot = targets_one_hot.float().to(device)
             targets_lengths = targets_lengths.to(device)
 
             pdb.set_trace()
             outputs, weights = model(batch_image, targets_one_hot, targets_lengths)
             
-            outputs = convert_to_text(outputs) # list of [T, 1] which T is variable length
-            targets = convert_to_text(targets) # list of [T', 1] which T' is variable length
+            outputs = convert_to_text(outputs, all_data, device) # list of [T, 1] which T is variable length
+            targets = convert_to_text(targets, all_data, device) # list of [T', 1] which T' is variable length
 
             # acc = np.sum(np.argmax(preds, -1) == labels.detach().cpu().numpy()) / len(preds)
             wer = np.mean(WER(outputs, targets))
@@ -134,26 +145,7 @@ def evaluate(model, val_loader):
     print('  End of evaluation : loss {:05.3f} , acc {:03.1f}'.format(np.mean(losses), np.mean(accs)))
     # return {'loss': np.mean(losses), 'cer': np.mean(accs)*100}
 
-class ScaleByHeight(object):
-    def __init__(self, target_height):
-        self.target_height = target_height
 
-    def __call__(self, image):
-        width, height = image.size
-        factor = self.target_height / height
-        new_width = int(width * factor)
-        new_height = int(height * factor)
-        image = image.resize((new_width, new_height))
-        return image
-
-class LabelToOneHot(object):
-    def __init__(self, all_data):
-        self.all_data = all_data
-
-    def __call__(self, label):
-        label = list(label) + [VNOnDBData.eos_char]
-        label = [self.all_data.char2int[character] for character in label]
-        return self.all_data.int2onehot(label)
 
 def run():
     global all_data
@@ -169,35 +161,15 @@ def run():
     config['device'] = 'cuda' if torch.cuda.is_available() else 'cpu'
     # batch_size = config['batch_size']
 
-    all_data = VNOnDBData('./data/VNOnDB/train_word.csv')
+    model = Model(4, 3, 96, 256, 256, device, all_data.vocab_size, 
+        all_data.char2int[all_data.sos_char],
+        all_data.char2int[all_data.pad_char],
+        all_data.char2int[all_data.eos_char],
+    )
 
-    image_transform = transforms.Compose([
-        #transforms.Resize((320, 480)),
-        ScaleByHeight(32),
-        transforms.Grayscale(3),
-        transforms.ToTensor(),
-    ])
-
-    label_transform = transforms.Compose([
-        LabelToOneHot(all_data),
-        transforms.ToTensor(),
-    ])
-
-    train_data = VNOnDB('./data/VNOnDB/word_train', './data/VNOnDB/train_word.csv', image_transform=image_transform, label_transform=label_transform)
-    validation_data = VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv', image_transform=image_transform, label_transform=label_transform)
-    test_data = VNOnDB('./data/VNOnDB/word_test', './data/VNOnDB/test_word.csv')
-
-    train_loader = DataLoader(train_data, batch_size=31, shuffle=True, collate_fn=to_batch, num_workers=8)
-    val_loader = DataLoader(validation_data, batch_size=1, shuffle=False, collate_fn=to_batch, num_workers=8)
-    test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=to_batch, num_workers=8)
-
-    # Models
-    model = Model(config, all_data)
-
-    model = model.to(config['device'])
+    model = model.to(device)
 
     # Optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=config['start_learning_rate'])
 
     print('=' * 60)
     print(model)
@@ -216,14 +188,13 @@ def run():
 
     # model, optimizer, loss, _ = load_checkpoint(config, all_data, './ckpt/6.pt')
     # model = model.to(config['device'])
-    evaluate(model, val_loader)
+    # evaluate(model, val_loader)
 
-    # for epoch in range(args.epochs):
-    #     run_state = (epoch, args.epochs)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config['start_learning_rate'])
+    criterion = torch.nn.CrossEntropyLoss()
+    train(2, model, optimizer, criterion, train_loader, MAX_LENGTH)
 
-    #     # Train needs to return model and optimizer, otherwise the model keeps restarting from zero at every epoch
-    #     model, optimizer, loss = train(model, optimizer, train_loader, run_state)
-    #     save_checkpoint(model, optimizer, loss, epoch, './ckpt')
+    
 
     #     #evaluate(model, val_loader)
 
@@ -233,6 +204,6 @@ def run():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     #parser.add_argument('--config', type=str)
-    parser.add_argument('--epochs', default=20, type=int)
+    parser.add_argument('--epochs', default=5, type=int)
     args, _ = parser.parse_known_args()
     run()

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import torchvision
 
 import pdb
-from dataset import VNOnDBData
+import random
 
 class Encoder(nn.Module):
     '''
@@ -22,8 +22,16 @@ class Encoder(nn.Module):
         # TODO: fix me
         self.n_features = self.cnn.norm5.num_features
     
-    def forward(self, x):
-        return self.cnn(x)
+    def forward(self, inputs):
+        '''
+        :param inputs: [B, C, H, W]
+        :returms: [num_pixels, B, C']
+        '''
+        batch_size = inputs.size(0)
+        outputs = self.cnn(inputs) # [B, C', H', W']
+        outputs = outputs.view(batch_size, self.n_features, -1) # [B, C', H' x W'] == [B, C', num_pixels]
+        outputs = outputs.permute(2, 0, 1) # [num_pixels, B, C']
+        return outputs
 
 class Attention(nn.Module):
     '''
@@ -40,7 +48,7 @@ class Attention(nn.Module):
         self.Ua = nn.Linear(hidden_size, attn_size, bias=False)
         self.va = nn.Linear(attn_size, 1, bias=False)
 
-    def forward(self, last_hidden, encoder_outputs):#, seq_len=None):
+    def forward(self, last_hidden, encoder_outputs):
         '''
         Input:
         :param last_hidden: [1, B, H]
@@ -49,9 +57,6 @@ class Attention(nn.Module):
         weights: [T, B, 1]
         '''
         attention_energies = self._score(last_hidden, encoder_outputs) # [T, B, 1]
-
-        # if seq_len is not None:
-        #     attention_energies = mask_3d(attention_energies, seq_len, -float('inf'))
 
         return F.softmax(attention_energies, -1)
 
@@ -113,25 +118,22 @@ class AttnDecoder(nn.Module):
 
         output = self.character_distribution(outputs) # [1, B, V]
 
-        # currently is CrossEntropyLoss, then dont need these line
-        # if self.decoder_output_fn:
-        #     output = self.decoder_output_fn(output, -1)
+        # output = F.log_softmax(output, -1)
 
         return output, hidden, weights
 
 
 
 class Model(nn.Module):
-    def __init__(self, config, dataset_all):
+    def __init__(self, depth, n_blocks, growth_rate, hidden_size, attn_size, device, vocab_size, SOS_int, PAD_int, EOS_int):
         super(Model, self).__init__()
 
-        self.hidden_size = config['hidden_size']
-        self.attn_size = config['attn_size']
-        self.device = config['device']
-        self.max_length = config['max_length']
-        self.vocab_size = len(dataset_all.alphabets)
-
-        self.encoder = Encoder(config['depth'], config['n_blocks'], config['growth_rate'])
+        self.encoder = Encoder(depth, n_blocks, growth_rate)
+        
+        self.hidden_size = hidden_size
+        self.attn_size = attn_size
+        self.device = device
+        self.vocab_size = vocab_size
         self.feature_size = self.encoder.n_features
 
         self.decoder = AttnDecoder(
@@ -140,63 +142,63 @@ class Model(nn.Module):
             self.vocab_size,
             self.attn_size)
 
-        self.dataset_all = dataset_all
+        self.SOS_int = SOS_int
+        self.EOS_int = EOS_int
+        self.PAD_int = PAD_int
 
-
-    def forward(self, inputs, targets=None, targets_lengths=None):
+    def forward(self, inputs, max_length=15, targets=None, targets_lengths=None, teacher_forcing_ratio=0.5):
         '''
         Input:
         :param inputs: [B, C, H, W]
-        :param targets: [T, B, V]
+        :param targets: [max_T, B, V]
         :param targets_lengths: [B, 1]
         Output:
         :outputs: [T, B, V]
         :weights: [T, B, 1]
+        :lengths: [B, 1]
         '''
 
-        batch_size = inputs.size(0)
-        encoder_outputs = self.encoder(inputs) # [B, C', H', W']
-        encoder_outputs = encoder_outputs.view(batch_size, self.feature_size, -1) # [B, C', H' x W'] == [B, C', T]
-        encoder_outputs = encoder_outputs.permute(2, 0, 1) # [T, B, C']
+        encoder_outputs = self.encoder(inputs) # [num_pixels, B, C']
 
-        outputs = []
-        weights = []
-
-        decoder_input = self.dataset_all.char2int[VNOnDBData.sos_char]
-        decoder_input = self.dataset_all.int2onehot([decoder_input])
-        decoder_input = torch.from_numpy(decoder_input).unsqueeze(0).float() # [1, 1, V]
-        decoder_input = decoder_input.repeat(1, batch_size, 1).to(self.device) # [1, B, V]
-        hidden = self.decoder.init_hidden(batch_size).to(self.device)
-
+        num_pixels = encoder_outputs.size(0)
+        batch_size = encoder_outputs.size(1)
+        
         if self.training:
             assert targets is not None and targets_lengths is not None
-            max_length = targets.size(0)
-            decoder_input_fn = self._input_training
         else:
-            max_length = self.max_length
-            decoder_input_fn = self._input_eval
+            assert teacher_forcing_ratio == 0
+
+        decoded_lengths = targets_lengths.squeeze().tolist()
+        decoder_input = torch.zeros(1, batch_size, self.vocab_size, device=encoder_outputs.device, dtype=torch.float)
+        decoder_input[:,:,self.SOS_int] = 1
+
+        decoder_hidden = self.decoder.init_hidden(batch_size).to(encoder_outputs.device)
+
+        outputs = torch.zeros(max(decoded_lengths), batch_size, self.vocab_size, device=encoder_outputs.device)
+        weights = torch.zeros(max(decoded_lengths), batch_size, num_pixels, device=encoder_outputs.device) 
 
         for t in range(max_length):
-            output, hidden, weight = self.decoder(
-                decoder_input,
-                prev_hidden=hidden,
-                encoder_outputs=encoder_outputs)
+            batch_size_t = sum([l > t for l in decoded_lengths])
 
-            decoder_input = decoder_input_fn(t, output, targets)
+            if batch_size_t == 0:
+                break
 
-            outputs.append(output)
-            weights.append(weight)
+            output, decoder_hidden, weight = self.decoder(
+                decoder_input[:,:batch_size_t],
+                decoder_hidden[:,:batch_size_t],
+                encoder_outputs[:,:batch_size_t]
+            )
+            # output: [1, batch_size_t, V]
+            # hidden: [1, batch_size_t, H]
+            # weight: [num_pixels, batch_size_t, 1]
 
-        #pdb.set_trace()
-        outputs = torch.cat(outputs, dim=0)   # [max_length, B, V]
-        weights = torch.stack(weights, dim=0)         # [max_length, T, B, 1]
+            outputs[[t], :batch_size_t] = output
+            weights[[t], :batch_size_t] = weight.transpose(0, 2)
 
-        return outputs, weights
+            teacher_force = random.random() < teacher_forcing_ratio
+            if self.training and teacher_force:
+                decoder_input = targets[[t], :batch_size_t] # [1, B, V]
+            else:
+                decoder_input = output
 
-    def _input_training(self, timestep, prev_output, targets=None):
-        decoder_input = targets[[timestep]]
-        return decoder_input # [1, B, V]
-
-    def _input_eval(self, timestep, prev_output, targets=None):
-        decoder_input = prev_output
-        return decoder_input # [1, B, V]
+        return outputs, weights, torch.tensor(decoded_lengths).unsqueeze(-1)
