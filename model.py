@@ -165,8 +165,6 @@ class Model(nn.Module):
         
         if self.training:
             assert targets is not None and targets_lengths is not None
-        else:
-            assert teacher_forcing_ratio == 0
 
         decoded_lengths = targets_lengths.squeeze().tolist()
         decoder_input = torch.zeros(1, batch_size, self.vocab_size, device=encoder_outputs.device, dtype=torch.float)

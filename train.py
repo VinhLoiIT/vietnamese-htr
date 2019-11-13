@@ -59,15 +59,14 @@ validation_data = VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_wor
 test_data = VNOnDB('./data/VNOnDB/word_test', './data/VNOnDB/test_word.csv', all_data, image_transform=image_transform)
 
 train_loader = DataLoader(train_data, batch_size=31, shuffle=True, collate_fn=collate_fn, num_workers=8)
-val_loader = DataLoader(validation_data, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=8)
-test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=8)
+val_loader = DataLoader(validation_data, batch_size=32, shuffle=False, collate_fn=collate_fn, num_workers=8)
+test_loader = DataLoader(test_data, batch_size=32, shuffle=False, collate_fn=collate_fn, num_workers=8)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def train(n_epochs, model, optimizer, criterion, train_loader, max_length=MAX_LENGTH):
 
     losses = []
-    cers = []
 
     t = tqdm.tqdm(train_loader)
     model.train()
@@ -107,8 +106,18 @@ def train(n_epochs, model, optimizer, criterion, train_loader, max_length=MAX_LE
     return model, optimizer, losses
     # print(' End of training:  loss={:05.3f} , cer={:03.1f}'.format(np.mean(losses), np.mean(cers)*100))
 
+def calc_acc_batch(predict, target):
+    '''
+    :param predict: [T, B, V]
+    :param target: [T, B, 1]
+    '''
+    batch_size = predict.size(1)
+    predict = predict.argmax(-1, keepdim=True) # [T, B, 1]
+    acc_batch = (predict == target).sum().item()
+    return acc_batch / batch_size
 
-def evaluate(model, val_loader):
+
+def evaluate(model, criterion, val_loader, max_length=MAX_LENGTH):
 
     losses = []
     accs = []
@@ -117,35 +126,28 @@ def evaluate(model, val_loader):
     model.eval()
 
     with torch.no_grad():
-        for batch_image, targets, targets_one_hot, targets_lengths in t:
-            t.set_description(' Evaluating... (train={})'.format(model.training))
+        for (inputs, targets, targets_one_hot, targets_lengths) in t:
+            inputs = inputs.to(device) # [B, C, H, W]
+            targets = targets.float().to(device) # [T, B, 1]
+            targets_one_hot = targets_one_hot.float().to(device) # [T, B, V]
+            targets_lengths = targets_lengths # [B, 1]
 
-            batch_image = batch_image.to(device)
-            targets = targets.float().to(device)
-            targets_one_hot = targets_one_hot.float().to(device)
-            targets_lengths = targets_lengths.to(device)
+            outputs, weights, decoded_lengths = model.forward(inputs, max_length, targets_one_hot, targets_lengths)
+            # outputs: [T, B, V]
+            # weights: [T, B, 1]
 
-            pdb.set_trace()
-            outputs, weights = model(batch_image, targets_one_hot, targets_lengths)
-            
-            outputs = convert_to_text(outputs, all_data, device) # list of [T, 1] which T is variable length
-            targets = convert_to_text(targets, all_data, device) # list of [T', 1] which T' is variable length
+            # pdb.set_trace()
+            outputs = mask_3d(outputs, decoded_lengths, 0)
+            outputs = outputs.view(-1, all_data.vocab_size)
+            targets = targets.view(-1).long()               
 
-            # acc = np.sum(np.argmax(preds, -1) == labels.detach().cpu().numpy()) / len(preds)
-            wer = np.mean(WER(outputs, targets))
+            loss = criterion(outputs, targets)
+
             losses.append(loss.item())
-            wers.append(wer)
-            t.set_postfix(avg_wer='{:05.3f}'.format(np.mean(wers)), avg_loss='{:05.3f}'.format(np.mean(losses)))
+            accs.append(calc_acc_batch(outputs, targets))
+
+            t.set_postfix(avg_accs=f'{np.mean(accs):05.3f}', avg_loss=f'{np.mean(losses):05.3f}')
             t.update()
-
-    # Uncomment if you want to visualise weights
-    # fig, ax = plt.subplots(1, 1)
-    # ax.pcolormesh(align)
-    # fig.savefig('data/att.png')
-    print('  End of evaluation : loss {:05.3f} , acc {:03.1f}'.format(np.mean(losses), np.mean(accs)))
-    # return {'loss': np.mean(losses), 'cer': np.mean(accs)*100}
-
-
 
 def run():
     global all_data
@@ -192,7 +194,8 @@ def run():
 
     optimizer = torch.optim.Adam(model.parameters(), lr=config['start_learning_rate'])
     criterion = torch.nn.CrossEntropyLoss()
-    train(2, model, optimizer, criterion, train_loader, MAX_LENGTH)
+    # train(2, model, optimizer, criterion, train_loader, MAX_LENGTH)
+    evaluate(model, criterion, val_loader)
 
     
 
