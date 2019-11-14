@@ -118,7 +118,9 @@ class AttnDecoder(nn.Module):
 
         output = self.character_distribution(outputs) # [1, B, V]
 
-        # output = F.log_softmax(output, -1)
+        output = F.relu(output)
+
+        output = F.log_softmax(output, -1)
 
         return output, hidden, weights
 
@@ -154,7 +156,7 @@ class Model(nn.Module):
         :param targets_lengths: [B, 1]
         Output:
         :outputs: [T, B, V]
-        :weights: [T, B, 1]
+        :weights: [num_pixels, B, 1]
         :lengths: [B, 1]
         '''
 
@@ -175,6 +177,7 @@ class Model(nn.Module):
         outputs = torch.zeros(max(decoded_lengths), batch_size, self.vocab_size, device=encoder_outputs.device)
         weights = torch.zeros(max(decoded_lengths), batch_size, num_pixels, device=encoder_outputs.device) 
 
+        # pdb.set_trace()
         for t in range(max_length):
             batch_size_t = sum([l > t for l in decoded_lengths])
 
@@ -190,12 +193,12 @@ class Model(nn.Module):
             # hidden: [1, batch_size_t, H]
             # weight: [num_pixels, batch_size_t, 1]
 
-            outputs[[t], :batch_size_t] = output
-            weights[[t], :batch_size_t] = weight.transpose(0, 2)
+            outputs[[t], :batch_size_t, :] = output
+            weights[[t], :batch_size_t, :] = weight.transpose(0, 2)
 
             teacher_force = random.random() < teacher_forcing_ratio
             if self.training and teacher_force:
-                decoder_input = targets[[t], :batch_size_t] # [1, B, V]
+                decoder_input = targets[[t], :batch_size_t].float() # [1, B, V]
             else:
                 decoder_input = output
 

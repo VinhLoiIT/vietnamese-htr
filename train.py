@@ -28,7 +28,7 @@ def mask_3d(inputs, inputs_lens, mask_value=0.):
     max_len = max(inputs_lens)
     for i, len_ in enumerate(inputs_lens):
         if len_ < max_len.item():
-            inputs[len_.item():, i, :] = mask_value
+            inputs[len_.item():, i] = torch.tensor([mask_value])
     return inputs
 
 
@@ -45,6 +45,10 @@ default_config = {
   'growth_rate': 96,
 }
 MAX_LENGTH = 10
+CKPT_DIR = './ckpt'
+
+if not os.path.exists(CKPT_DIR):
+    os.mkdir(CKPT_DIR)
 
 all_data = VNOnDBData('./data/VNOnDB/all_word.csv') #replace train_word by all_word
 
@@ -58,112 +62,164 @@ train_data = VNOnDB('./data/VNOnDB/word_train', './data/VNOnDB/train_word.csv', 
 validation_data = VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv', all_data, image_transform=image_transform)
 test_data = VNOnDB('./data/VNOnDB/word_test', './data/VNOnDB/test_word.csv', all_data, image_transform=image_transform)
 
-train_loader = DataLoader(train_data, batch_size=31, shuffle=True, collate_fn=collate_fn, num_workers=8)
+train_loader = DataLoader(train_data, batch_size=64, shuffle=True, collate_fn=collate_fn, num_workers=8)
 val_loader = DataLoader(validation_data, batch_size=32, shuffle=False, collate_fn=collate_fn, num_workers=8)
 test_loader = DataLoader(test_data, batch_size=32, shuffle=False, collate_fn=collate_fn, num_workers=8)
 
+# train_loader = DataLoader(train_data, batch_size=64, shuffle=True, collate_fn=collate_fn)
+# val_loader = DataLoader(validation_data, batch_size=32, shuffle=False, collate_fn=collate_fn)
+# test_loader = DataLoader(test_data, batch_size=32, shuffle=False, collate_fn=collate_fn)
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-def train(n_epochs, model, optimizer, criterion, train_loader, max_length=MAX_LENGTH):
+def train_one_epoch(epoch, model, optimizer, criterion, max_length=MAX_LENGTH):
 
-    losses = []
-
-    t = tqdm.tqdm(train_loader)
     model.train()
+    wers = [] 
+    losses = []
+    t = tqdm.tqdm(train_loader)
 
-    for epoch in range(args.epochs):
-        # Train needs to return model and optimizer, otherwise the model keeps restarting from zero at every epoch
-        for (inputs, targets, targets_one_hot, targets_lengths) in t:
-            t.set_description(f'Epoch {epoch}/{n_epochs} (train={model.training})')
+    for i, (inputs, targets, targets_one_hot, targets_lengths) in enumerate(t):
+        t.set_description(f'Epoch {epoch} (train={model.training})')
 
-            inputs = inputs.to(device) # [B, C, H, W]
-            targets = targets.float().to(device) # [T, B, 1]
-            targets_one_hot = targets_one_hot.float().to(device) # [T, B, V]
-            targets_lengths = targets_lengths # [B, 1]
+        inputs = inputs.to(device) # [B, C, H, W]
+        targets = targets.to(device) # [T, B]
+        targets_one_hot = targets_one_hot.to(device) # [T, B, V]
+        targets_lengths = targets_lengths # [B, 1]
 
-            outputs, weights, decoded_lengths = model.forward(inputs, max_length, targets_one_hot, targets_lengths)
-            # outputs: [T, B, V]
-            # weights: [T, B, 1]
+        optimizer.zero_grad()
 
-            # pdb.set_trace()
-            outputs = mask_3d(outputs, decoded_lengths, 0)
-            outputs = outputs.view(-1, all_data.vocab_size)
-            targets = targets.view(-1).long()               
+        outputs, weights, decoded_lengths = model(inputs, max_length, targets_one_hot, targets_lengths)
+        # outputs: [T, B, V]
+        # weights: [T, B, 1]
+        wers += words_correct_list(outputs, targets, targets_lengths)
 
-            loss = criterion(outputs, targets)
-            losses.append(loss.item())
-            # Reset gradients
-            optimizer.zero_grad()
-            # Compute gradients
-            loss.backward()
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2)
-            optimizer.step()
-            t.set_postfix(loss='{:05.3f}'.format(losses[-1]), avg_loss='{:05.3f}'.format(np.mean(losses)))
-            t.update()
+        outputs = torch.nn.utils.rnn.pack_padded_sequence(outputs, decoded_lengths.squeeze())[0]
+        targets = torch.nn.utils.rnn.pack_padded_sequence(targets, targets_lengths.squeeze())[0]
+        loss = criterion(outputs, targets)
 
-        save_checkpoint(model, optimizer, loss, epoch, './ckpt')
+        losses += [loss.item()] * inputs.size(0)
+        # Reset gradients
+        # Compute gradients
+        loss.backward()
+        optimizer.step()
 
-    return model, optimizer, losses
-    # print(' End of training:  loss={:05.3f} , cer={:03.1f}'.format(np.mean(losses), np.mean(cers)*100))
+        t.set_postfix(avg_loss=f'{np.mean(losses):05.3f}', acc=f'{np.mean(wers):05.3f}')
+        t.update()
 
-def calc_acc_batch(predict, target):
-    '''
-    :param predict: [T, B, V]
-    :param target: [T, B, 1]
-    '''
-    batch_size = predict.size(1)
-    predict = predict.argmax(-1, keepdim=True) # [T, B, 1]
-    acc_batch = (predict == target).sum().item()
-    return acc_batch / batch_size
+    return model, optimizer, np.mean(losses), np.mean(wers)
 
 
-def evaluate(model, criterion, val_loader, max_length=MAX_LENGTH):
+def validate(model, criterion, max_length=MAX_LENGTH):
 
     losses = []
-    accs = []
+    wers = []
 
     t = tqdm.tqdm(val_loader)
     model.eval()
 
     with torch.no_grad():
         for (inputs, targets, targets_one_hot, targets_lengths) in t:
+            t.set_description(f'Eval (train={model.training})')
             inputs = inputs.to(device) # [B, C, H, W]
-            targets = targets.float().to(device) # [T, B, 1]
-            targets_one_hot = targets_one_hot.float().to(device) # [T, B, V]
+            targets = targets.to(device) # [T, B]
+            targets_one_hot = targets_one_hot.to(device) # [T, B, V]
             targets_lengths = targets_lengths # [B, 1]
 
             outputs, weights, decoded_lengths = model.forward(inputs, max_length, targets_one_hot, targets_lengths)
             # outputs: [T, B, V]
             # weights: [T, B, 1]
+            wers += words_correct_list(outputs, targets, targets_lengths)
 
-            # pdb.set_trace()
-            outputs = mask_3d(outputs, decoded_lengths, 0)
-            outputs = outputs.view(-1, all_data.vocab_size)
-            targets = targets.view(-1).long()
+            outputs = torch.nn.utils.rnn.pack_padded_sequence(outputs, decoded_lengths.squeeze())[0]
+            targets = torch.nn.utils.rnn.pack_padded_sequence(targets, targets_lengths.squeeze())[0]
 
             loss = criterion(outputs, targets)
 
-            losses.append(loss.item())
-            accs.append(calc_acc_batch(outputs, targets))
+            losses += [loss.item()] * inputs.size(0)
+            
 
-            t.set_postfix(avg_accs=f'{np.mean(accs):05.3f}', avg_loss=f'{np.mean(losses):05.3f}')
+            t.set_postfix(avg_loss=f'{np.mean(losses):05.3f}', acc=f'{np.mean(wers):05.3f}')
             t.update()
-        print(f'Targets[batch_val-1][0]: {targets[0]}')
-        print(f'Outputs[batch_val-1][0]: {outputs[0]}')
+
+    return model, np.mean(losses), np.mean(wers)
+
+
+def train(model, info, max_length=MAX_LENGTH):
+    
+    if info is None:
+        info = dict()
+        info['train_losses'] = []
+        info['train_accs'] = []
+        info['val_losses'] = []
+        info['val_accs'] = []
+        info['model_state_dict'] = None
+        info['epoch'] = 0
+        info['lr'] = 1e-3
+        info['optimizer_state_dict'] = None
+        info['count_not_improve'] = 0
+        info['best_val_accs'] = 0
+
+    if info['model_state_dict'] is not None:
+        model.load_state_dict(info['model_state_dict'])
+    
+    optimizer = torch.optim.Adam(model.parameters(), lr=info['lr'])
+    if info['optimizer_state_dict'] is not None:
+        optimizer.load_state_dict(info['optimizer_state_dict'])
+
+    model.train()
+    criterion = torch.nn.NLLLoss().to(device)
+
+    print('Start training...')
+    # pdb.set_trace()
+    while True:
+        info['epoch'] += 1
+        model, optimizer, train_loss, train_acc = train_one_epoch(info['epoch'], model, optimizer, criterion, max_length)
+        model, val_loss, val_acc = validate(model, criterion)
+
+        info['train_losses'].append(train_loss)
+        info['train_accs'].append(train_acc)
+        info['val_losses'].append(val_loss)
+        info['val_accs'].append(val_acc)
+        info['optimizer_state_dict'] = optimizer.state_dict()
+        info['model_state_dict'] = model.state_dict()
+
+        if val_acc >= info['best_val_accs']:
+            info['count_not_improve'] = 0
+            info['best_val_accs'] = val_acc
+
+            ckpt_path = os.path.join(CKPT_DIR, f'BEST.pt')
+            torch.save(info, ckpt_path)
+            print(f'Saved at epoch = {info["epoch"]}')
+        else:
+            info['count_not_improve'] += 1 
+
+        if info['count_not_improve'] >= 15:
+            info['count_not_improve'] = 0
+            info['lr'] /= 10
+            optimizer = torch.optim.Adam(model.parameters(), lr=info['lr'])
+
+        if info['lr'] <= 1e-5:
+            break
+
+    return model, optimizer, losses
+
+def words_correct_list(predict, target, targets_lengths):
+    '''
+    :param predict: [T, B, V]
+    :param target: [T, B]
+    :param targets_lengths: [B, 1]
+    '''
+    predict = predict.argmax(-1).transpose(0, 1).long() # [B, T]
+    target = target.transpose(0, 1).long() # [B, T]
+    batch_size = target.size(0)
+
+    result = [1 if predict[i, :targets_lengths[i]].equal(target[i, :targets_lengths[i]]) else 0 for i in range(batch_size)]
+    return result
 
 def run():
     global all_data
-    #config_path = os.path.join('models', args.config)
     config = default_config
-
-    #if not os.path.exists(config_path):
-    #    raise FileNotFoundError
-
-    #with open(config_path, 'r') as f:
-    #    config = json.load(f)
-
-    config['device'] = 'cuda' if torch.cuda.is_available() else 'cpu'
-    # batch_size = config['batch_size']
 
     model = Model(4, 3, 96, 256, 256, device, all_data.vocab_size, 
         all_data.char2int[all_data.sos_char],
@@ -172,8 +228,6 @@ def run():
     )
 
     model = model.to(device)
-
-    # Optimizer
 
     print('=' * 60)
     print(model)
@@ -190,25 +244,18 @@ def run():
     #     elif 'weight' in name:
     #         torch.nn.init.xavier_normal_(param)
 
-    # model, optimizer, loss, _ = load_checkpoint(config, all_data, './ckpt/6.pt')
-    # model = model.to(config['device'])
-    # evaluate(model, val_loader)
+    info = None
+    if args.resume is not None:
+        try:
+            info = torch.load(args.resume)
+        except FileNotFoundError as e:
+            print(e)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=config['start_learning_rate'])
-    criterion = torch.nn.CrossEntropyLoss()
-    # train(2, model, optimizer, criterion, train_loader, MAX_LENGTH)
-    evaluate(model, criterion, val_loader)
-
-    
-
-    #     #evaluate(model, val_loader)
-
-    #     # TODO implement save models function
-
+    train(model, info)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    #parser.add_argument('--config', type=str)
     parser.add_argument('--epochs', default=5, type=int)
+    parser.add_argument('--resume', type=str)
     args, _ = parser.parse_known_args()
     run()

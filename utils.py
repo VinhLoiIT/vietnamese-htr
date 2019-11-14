@@ -6,16 +6,18 @@ import editdistance as ed
 import pdb
 from dataset import VNOnDBData
 
-def save_checkpoint(model, optimizer, loss, epoch, ckpt_dir):
+def save_checkpoint(model, optimizer, loss_train, loss_val, acc_train, acc_val, epoch, ckpt_path):
     info = {
         'epoch': epoch,
         'optimizer_state_dict': optimizer.state_dict(),
         'model_state_dict': model.state_dict(),
-        'loss': loss,
+        'loss_train': loss_train,
+        'loss_val': loss_val,
+        'acc_train': acc_train,
+        'acc_val': acc_val,
     }
-    path = os.path.join(ckpt_dir, f'{epoch}.pt')
-    print(f'Saving checkpoint to {path}')
-    torch.save(info, path)
+    print(f'Saving checkpoint to {ckpt_path}')
+    torch.save(info, ckpt_path)
 
 def load_checkpoint(config, all_data, ckpt_path):
     model = Model(config, all_data)
