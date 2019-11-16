@@ -58,9 +58,9 @@ train_data = VNOnDB('./data/VNOnDB/word_train', './data/VNOnDB/train_word.csv', 
 validation_data = VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv', all_data, image_transform=image_transform)
 test_data = VNOnDB('./data/VNOnDB/word_test', './data/VNOnDB/test_word.csv', all_data, image_transform=image_transform)
 
-train_loader = DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, collate_fn=collate_fn, num_workers=12)
-val_loader = DataLoader(validation_data, batch_size=config['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=12)
-test_loader = DataLoader(test_data, batch_size=32, shuffle=False, collate_fn=collate_fn, num_workers=8)
+train_loader = DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, collate_fn=collate_fn, num_workers=10)
+val_loader = DataLoader(validation_data, batch_size=config['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=10)
+test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=10)
 
 # train_loader = DataLoader(train_data, batch_size=64, shuffle=True, collate_fn=collate_fn)
 # val_loader = DataLoader(validation_data, batch_size=32, shuffle=False, collate_fn=collate_fn)
@@ -144,8 +144,15 @@ def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
 
-def train(model, info, max_length=MAX_LENGTH):
-    
+def save_checkpoint(info, is_best=False):
+    filename = 'weights.pt'
+    ckpt_path = os.path.join(CKPT_DIR, filename)
+    torch.save(info, ckpt_path)
+    if is_best:
+        ckpt_path = os.path.join(CKPT_DIR, 'BEST_' + filename)
+        torch.save(info, ckpt_path)
+
+def train(model: Model, info: dict, max_length=MAX_LENGTH):
     if info is None:
         info = dict()
         info['train_losses'] = []
@@ -153,6 +160,7 @@ def train(model, info, max_length=MAX_LENGTH):
         info['val_losses'] = []
         info['val_accs'] = []
         info['model_state_dict'] = None
+        info['scheduler_state_dict'] = None
         info['optimizer_state_dict'] = None
         info['epoch'] = 0
         info['best_val_accs'] = 0
@@ -162,14 +170,18 @@ def train(model, info, max_length=MAX_LENGTH):
         print(f'Epoch: {info["epoch"]}')
         print(f'Best validation accuracy: {info["best_val_accs"]:05.3f}')
         print(f'Learning rate: {info["lr"]}')
-
-    if info['model_state_dict'] is not None:
         model.load_state_dict(info['model_state_dict'])
-    
-    optimizer = torch.optim.Adam(model.parameters(), lr=info['lr'])
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=config['n_epochs_decrease_lr'], min_lr=config['end_learning_rate'], verbose=True)
+
+    optimizer = torch.optim.SGD(model.parameters(), lr=info['lr'])
     if info['optimizer_state_dict'] is not None:
         scheduler.load_state_dict(info['optimizer_state_dict'])
+
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 'min',
+        patience=config['n_epochs_decrease_lr'],
+        min_lr=config['end_learning_rate'], verbose=True)
+    if info['scheduler_state_dict'] is not None:
+        scheduler.load_state_dict(info['scheduler_state_dict'])
 
     model.train()
     criterion = torch.nn.NLLLoss().to(device)
@@ -178,6 +190,7 @@ def train(model, info, max_length=MAX_LENGTH):
     # pdb.set_trace()
     while True:
         info['epoch'] += 1
+
         train_loss, train_acc = train_one_epoch(info['epoch'], model, optimizer, criterion, max_length)
         val_loss, val_acc = validate(model, criterion)
         scheduler.step(val_loss)
@@ -186,18 +199,16 @@ def train(model, info, max_length=MAX_LENGTH):
         info['train_accs'].append(train_acc)
         info['val_losses'].append(val_loss)
         info['val_accs'].append(val_acc)
-        info['optimizer_state_dict'] = scheduler.state_dict()
+        info['optimizer_state_dict'] = optimizer.state_dict()
+        info['scheduler_state_dict'] = scheduler.state_dict()
         info['model_state_dict'] = model.state_dict()
         info['lr'] = get_lr(optimizer)
 
         if val_acc >= info['best_val_accs']:
             info['best_val_accs'] = val_acc
-
-            ckpt_path = os.path.join(CKPT_DIR, f'BEST.pt')
-            torch.save(info, ckpt_path)
-
-        filepath = os.path.join(CKPT_DIR, 'weights.pt')
-        torch.save(info, filepath)
+            save_checkpoint(info, True)
+        else:
+            save_checkpoint(info, False)
 
         if info['lr'] <= config['end_learning_rate']:
             print('Reach min learning rate. Stop training...')
@@ -267,6 +278,10 @@ def run():
 
     model, optimizer, info = train(model, info)
     print('Done')
+    print('=' * 60)
+    print('Number training epochs: ', info['epoch'])
+    print('Best validation accuracy: ', info['best_val_accs'])
+    print('=' * 60)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
