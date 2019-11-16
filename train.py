@@ -71,10 +71,9 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 def train_one_epoch(epoch, model, optimizer, criterion, max_length=MAX_LENGTH):
 
     model.train()
-    match_characters = 0
-    total_characters = 0 
     losses = []
-    t = tqdm.tqdm(train_loader, desc=f'Epoch {epoch}')
+    accs = []
+    t = tqdm.tqdm(train_loader, desc=f'Epoch {epoch}', ascii=True)
 
     for (inputs, targets, targets_one_hot, targets_lengths) in t:
         inputs = inputs.to(device) # [B, C, H, W]
@@ -87,33 +86,30 @@ def train_one_epoch(epoch, model, optimizer, criterion, max_length=MAX_LENGTH):
         outputs, weights, decoded_lengths = model(inputs, max_length, targets_one_hot, targets_lengths)
         # outputs: [T, B, V]
         # weights: [T, B, 1]
-        match_characters += count_match_characters(outputs, targets, targets_lengths)
-        total_characters += targets_lengths.sum().item()
+        acc = count_match_characters(outputs, targets, targets_lengths) / targets_lengths.sum().item()
+        accs.append(acc)
 
         outputs = torch.nn.utils.rnn.pack_padded_sequence(outputs, decoded_lengths.squeeze())[0]
         targets = torch.nn.utils.rnn.pack_padded_sequence(targets, targets_lengths.squeeze())[0]
         loss = criterion(outputs, targets)
+        losses.append(loss.item())
 
-        losses += [loss.item()] * inputs.size(0)
-        # Reset gradients
-        # Compute gradients
         loss.backward()
         optimizer.step()
 
-        t.set_postfix(avg_loss=f'{np.mean(losses):05.3f}', avg_acc=f'{match_characters/total_characters:05.3f}')
+        t.set_postfix(avg_loss=f'{np.mean(losses):05.3f}', avg_acc=f'{np.mean(accs):05.3f}')
         t.update()
 
-    return np.mean(losses), match_characters/total_characters
+    return losses, accs
 
 
 def validate(model, criterion, max_length=MAX_LENGTH):
 
-    t = tqdm.tqdm(val_loader, desc='Validate')
+    t = tqdm.tqdm(val_loader, desc='Validate', ascii=True)
     model.eval()
 
     losses = []
-    total_characters = 0
-    match_characters = 0
+    accs = []
 
     with torch.no_grad():
         for (inputs, targets, targets_one_hot, targets_lengths) in t:
@@ -125,20 +121,19 @@ def validate(model, criterion, max_length=MAX_LENGTH):
             outputs, weights, decoded_lengths = model.forward(inputs, max_length, targets_one_hot, targets_lengths)
             # outputs: [T, B, V]
             # weights: [T, B, 1]
-            match_characters += count_match_characters(outputs, targets, targets_lengths)
-            total_characters += targets_lengths.sum().item()
+            acc = count_match_characters(outputs, targets, targets_lengths) / targets_lengths.sum().item()
+            accs.append(acc)
 
             outputs = torch.nn.utils.rnn.pack_padded_sequence(outputs, decoded_lengths.squeeze())[0]
             targets = torch.nn.utils.rnn.pack_padded_sequence(targets, targets_lengths.squeeze())[0]
 
             loss = criterion(outputs, targets)
+            losses.append(loss.item())
 
-            losses += [loss.item()] * inputs.size(0)
-
-            t.set_postfix(avg_loss=f'{np.mean(losses):05.3f}', avg_acc=f'{match_characters/total_characters:05.3f}')
+            t.set_postfix(avg_loss=f'{np.mean(losses):05.3f}', avg_acc=f'{np.mean(accs):05.3f}')
             t.update()
 
-    return np.mean(losses), match_characters/total_characters
+    return losses, accs
 
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
@@ -191,14 +186,15 @@ def train(model: Model, info: dict, max_length=MAX_LENGTH):
     while True:
         info['epoch'] += 1
 
-        train_loss, train_acc = train_one_epoch(info['epoch'], model, optimizer, criterion, max_length)
-        val_loss, val_acc = validate(model, criterion)
-        scheduler.step(val_loss)
+        train_losses, train_accs = train_one_epoch(info['epoch'], model, optimizer, criterion, max_length)
+        val_losses, val_accs = validate(model, criterion)
+        scheduler.step(np.mean(val_losses))
 
-        info['train_losses'].append(train_loss)
-        info['train_accs'].append(train_acc)
-        info['val_losses'].append(val_loss)
-        info['val_accs'].append(val_acc)
+        info['train_losses'] += train_losses
+        info['train_accs'] += train_accs
+        info['val_losses'] += val_losses
+        info['val_accs'] += val_accs
+
         info['optimizer_state_dict'] = optimizer.state_dict()
         info['scheduler_state_dict'] = scheduler.state_dict()
         info['model_state_dict'] = model.state_dict()
