@@ -106,6 +106,7 @@ venv.bak/
 # data
 data/*
 ckpt/*
+runs/*
 !data/download.sh
 
 # VSCode
