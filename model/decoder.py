@@ -68,3 +68,30 @@ class Decoder(nn.Module):
             rnn_input = output
             
         return outputs, weights
+    
+    def greedy(self, img_features, start_input, max_length=10):
+        num_pixels = img_features.size(0)
+        batch_size = img_features.size(1)
+
+        rnn_input = start_input
+
+        hidden = self.init_hidden(batch_size).to(img_features.device)
+
+        outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
+        weights = torch.zeros(max_length, batch_size, num_pixels, device=img_features.device) 
+
+        # pdb.set_trace()
+        for t in range(max_length):
+            context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
+
+            rnn_input = torch.cat((rnn_input, context), -1)
+
+            output, hidden = self.rnn(rnn_input, hidden)
+            output = self.character_distribution(output)
+
+            outputs[[t]] = output
+            weights[[t]] = weight.transpose(0, 2)
+
+            rnn_input = output
+
+        return outputs, weights

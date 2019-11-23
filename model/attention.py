@@ -22,7 +22,7 @@ class Attention(nn.Module):
         attn2 = self.Ua(last_hidden) # [1, B, A]
         attn = self.va(torch.tanh(attn1 + attn2)) # [num_pixels, B, 1]
         
-        weights = F.softmax(attn.squeeze(2), 1).unsqueeze(2) # [num_pixels, B, 1]
+        weights = F.softmax(attn.squeeze(2), 0).unsqueeze(2) # [num_pixels, B, 1]
         context = (weights * encoder_outputs).sum(0, keepdim=True) # [1, B, C]
         
         return context, weights
