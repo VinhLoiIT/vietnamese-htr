@@ -6,15 +6,14 @@ import os
 import pdb
 from model.encoder import Encoder
 from model.decoder import Decoder
-from dataset import VNOnDB, collate_fn
+from dataset import get_dataset, collate_fn, vocab_size
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.nn.utils.rnn import pack_padded_sequence
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torchvision import transforms
-from utils import ScaleImageByHeight
+from utils import ScaleImageByHeight, AverageMeter, accuracy
 from torch.utils.tensorboard import SummaryWriter
 
 config = {
@@ -23,7 +22,7 @@ config = {
     'attn_size': 256,
     'max_length': 10,
     'n_epochs_decrease_lr': 15,
-    'start_learning_rate': 1e-3,  # NOTE: paper start with 1e-8
+    'start_learning_rate': 1e-5,  # NOTE: paper start with 1e-8
     'end_learning_rate': 1e-11,
     'depth': 4,
     'n_blocks': 3,
@@ -42,34 +41,31 @@ image_transform = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-# replace train_word by all_word
-all_data = VNOnDBData('./data/VNOnDB/all_word.csv')
-train_data = VNOnDB('./data/VNOnDB/word_train', './data/VNOnDB/train_word.csv',
-                    all_data, image_transform=image_transform)
-validation_data = VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv',
-                         all_data, image_transform=image_transform)
-test_data = VNOnDB('./data/VNOnDB/word_test', './data/VNOnDB/test_word.csv',
-                   all_data, image_transform=image_transform)
+train_data = get_dataset('train', image_transform)
+validation_data = get_dataset('val', image_transform)
+test_data = get_dataset('test', image_transform)
 
-# train_loader = DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, collate_fn=collate_fn, num_workers=8)
-# val_loader = DataLoader(validation_data, batch_size=config['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=8)
-# test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=8)
+train_loader = DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, collate_fn=collate_fn, num_workers=8)
+val_loader = DataLoader(validation_data, batch_size=config['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=8)
+test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=8)
 
-train_loader = DataLoader(train_data, batch_size=64,
-                          shuffle=True, collate_fn=collate_fn)
-val_loader = DataLoader(validation_data, batch_size=32,
-                        shuffle=False, collate_fn=collate_fn)
-test_loader = DataLoader(test_data, batch_size=32,
-                         shuffle=False, collate_fn=collate_fn)
+# train_loader = DataLoader(train_data, batch_size=64,
+#                           shuffle=True, collate_fn=collate_fn)
+# val_loader = DataLoader(validation_data, batch_size=32,
+#                         shuffle=False, collate_fn=collate_fn)
+# test_loader = DataLoader(test_data, batch_size=32,
+#                          shuffle=False, collate_fn=collate_fn)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-def train_one_epoch(info, epoch, train_loader, encoder, decoder, optimizer, criterion, writer, log_interval=100):
+def train_one_epoch(info, train_loader, encoder, decoder, optimizer, criterion, writer, log_interval=100):
     encoder.train()
     decoder.train()
 
     losses = AverageMeter()
     accs = AverageMeter()
+    
+    print('Training')
 
     for i, (imgs, targets, targets_onehot, lengths) in enumerate(train_loader):
 
@@ -104,18 +100,20 @@ def train_one_epoch(info, epoch, train_loader, encoder, decoder, optimizer, crit
         if (i+1) % log_interval == 0:
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'Accuracy {accs.val:.3f} ({accs.avg:.3f})'.format(epoch, i, len(train_loader),
+                  'Accuracy {accs.val:.3f} ({accs.avg:.3f})'.format(info['epoch'], i, len(train_loader),
                                                                     loss=losses,
                                                                     accs=accs))
     return losses.avg, accs.avg
 
 
-def validate(epoch, val_loader, encoder, decoder, criterion, writer, log_interval=100):
+def validate(info, val_loader, encoder, decoder, criterion, writer, log_interval=100):
     losses = AverageMeter()
     accs = AverageMeter()
 
     encoder.eval()
     decoder.eval()
+    
+    print('Validating')
     with torch.no_grad():
         for i, (imgs, targets, targets_onehot, lengths) in enumerate(val_loader):
 
@@ -144,7 +142,7 @@ def validate(epoch, val_loader, encoder, decoder, criterion, writer, log_interva
             if (i+1) % log_interval == 0:
                 print('Epoch: [{0}][{1}/{2}]\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                      'Accuracy {accs.val:.3f} ({accs.avg:.3f})'.format(epoch, i, len(val_loader),
+                      'Accuracy {accs.val:.3f} ({accs.avg:.3f})'.format(info['epoch'], i, len(val_loader),
                                                                         loss=losses,
                                                                         accs=accs))
     return losses.avg, accs.avg
@@ -182,7 +180,7 @@ def train(info: dict):
         print(f'Learning rate: {info["lr"]}')
 
     encoder = Encoder(
-        config['depth'], config['n_block'], config['growth_rate'])
+        config['depth'], config['n_blocks'], config['growth_rate'])
     if info['encoder_state'] is not None:
         encoder.load_state_dict(info['encoder_state'])
 
@@ -212,9 +210,9 @@ def train(info: dict):
     while True:
         info['epoch'] += 1
         train_loss, train_acc = train_one_epoch(
-            info['epoch'], train_loader, encoder, decoder, optimizer, criterion, writer, log_interval=100)
+            info, train_loader, encoder, decoder, optimizer, criterion, writer, log_interval=100)
         val_loss, val_acc = validate(
-            info['epoch'], val_loader, encoder, decoder, criterion, writer, log_interval=100)
+            info, val_loader, encoder, decoder, criterion, writer, log_interval=100)
         scheduler.step(val_acc)
 
         info['optimizer_state'] = optimizer.state_dict()
@@ -237,18 +235,20 @@ def train(info: dict):
 
 
 def run(args):
+    
+    print('=' * 60)
     for k, v in sorted(config.items(), key=lambda i: i[0]):
         print(' (' + k + ') : ' + str(v))
     print()
     print('=' * 60)
 
+    info = None
     if args.resume is not None:
         try:
             info = torch.load(args.resume)
         except FileNotFoundError as e:
             print(e)
-
-    print('=' * 60)
+    
     encoder, decoder, info = train(info)
     print('=' * 60)
     print('Number training epochs: ', info['epoch'])

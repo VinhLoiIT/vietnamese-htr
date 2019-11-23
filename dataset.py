@@ -1,9 +1,19 @@
+import os
 import torch
+import pandas as pd
 from PIL import Image
 
 SOS_CHAR = '<start>' # start of sequence character
 EOS_CHAR = '<end>' # end of sequence character
 PAD_CHAR = '<pad>' # padding character
+
+alphabets = pd.read_csv('./data/VNOnDB/all_word.csv', sep='\t', keep_default_na=False, index_col=0)
+alphabets = sorted(list(set.union(*alphabets.label.apply(set))) + [SOS_CHAR, EOS_CHAR, PAD_CHAR])
+
+char2int = dict((c, i) for i, c in enumerate(alphabets))
+int2char = dict((i, c) for i, c in enumerate(alphabets))
+vocab_size = len(alphabets)
+
 
 class VNOnDB(torch.utils.data.Dataset):
     def __init__(self, image_folder, csv, image_transform=None):
@@ -25,7 +35,18 @@ class VNOnDB(torch.utils.data.Dataset):
         label = [SOS_CHAR] + list(label) + [EOS_CHAR]
             
         return image, label
+    
+def get_dataset(dataset, transform):
+    if dataset not in ['train', 'test', 'val']:
+        raise ValueError('Should be: ' + str(['train', 'test', 'val']))
 
+    if dataset == 'test':
+        return VNOnDB('./data/VNOnDB/word_test', './data/VNOnDB/test_word.csv', transform)
+    if dataset == 'train':
+        return VNOnDB('./data/VNOnDB/word_train', './data/VNOnDB/train_word.csv', transform)
+    if dataset == 'val':
+        return VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv', transform)
+    
 def collate_fn(samples):
     '''
     :param samples: list of tuples:

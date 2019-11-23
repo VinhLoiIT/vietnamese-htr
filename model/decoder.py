@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import random
 from .attention import Attention
 
 class Decoder(nn.Module):
