@@ -17,7 +17,7 @@ from utils import ScaleImageByHeight, AverageMeter, accuracy
 from torch.utils.tensorboard import SummaryWriter
 
 config = {
-    'batch_size': 64,
+    'batch_size': 32,
     'hidden_size': 256,
     'attn_size': 256,
     'max_length': 10,
@@ -37,7 +37,7 @@ if not os.path.exists(CKPT_DIR):
 
 image_transform = transforms.Compose([
     transforms.Grayscale(3),
-    ScaleImageByHeight(32),
+    ScaleImageByHeight(64),
     transforms.ToTensor(),
 ])
 
@@ -45,9 +45,9 @@ train_data = get_dataset('train', image_transform)
 validation_data = get_dataset('val', image_transform)
 test_data = get_dataset('test', image_transform)
 
-train_loader = DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, collate_fn=collate_fn, num_workers=8)
-val_loader = DataLoader(validation_data, batch_size=config['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=8)
-test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=8)
+train_loader = DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, collate_fn=collate_fn, num_workers=4)
+val_loader = DataLoader(validation_data, batch_size=config['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=4)
+test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=4)
 
 # train_loader = DataLoader(train_data, batch_size=64,
 #                           shuffle=True, collate_fn=collate_fn)
