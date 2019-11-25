@@ -1,7 +1,7 @@
 import os
 import torch
 import numpy as np
-import pdb
+from PIL import Image
 
 class ScaleImageByHeight(object):
     def __init__(self, target_height):
@@ -14,6 +14,20 @@ class ScaleImageByHeight(object):
         new_height = int(height * factor)
         image = image.resize((new_width, new_height))
         return image
+    
+class PaddingWidth(object):
+    '''
+    Padding width in case of the width is too small
+    '''
+    def __init__(self, min_width):
+        self.min_width = min_width
+
+    def __call__(self, image):
+        image_width, image_height = image.size
+        width = self.min_width if image_width < self.min_width else image_width
+        padded_image = Image.new('RGB', (width, image_height), color='white')
+        padded_image.paste(image)
+        return padded_image
 
 def accuracy(outputs, targets):
     batch_size = outputs.size(0)
