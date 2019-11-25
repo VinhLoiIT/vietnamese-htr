@@ -102,3 +102,12 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# data
+data/*
+ckpt/*
+runs/*
+!data/download.sh
+
+# VSCode
+.vscode/
