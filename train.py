@@ -3,6 +3,8 @@ import numpy as np
 import tqdm
 import argparse
 import os
+import datetime
+import json
 import pdb
 from model.encoder import Encoder
 from model.decoder import Decoder
@@ -16,45 +18,32 @@ from torchvision import transforms
 from utils import ScaleImageByHeight, AverageMeter, accuracy
 from torch.utils.tensorboard import SummaryWriter
 
-config = {
-    'batch_size': 32,
-    'hidden_size': 256,
-    'attn_size': 256,
-    'max_length': 10,
-    'n_epochs_decrease_lr': 15,
-    'start_learning_rate': 1e-5,  # NOTE: paper start with 1e-8
-    'end_learning_rate': 1e-11,
-    'depth': 4,
-    'n_blocks': 3,
-    'growth_rate': 96,
-}
 
-MAX_LENGTH = config['max_length']
-CKPT_DIR = './ckpt'
+RUN_TIME = datetime.datetime.now().strftime('%d%m%Y_%H%M%S')
+CFG_DIR = './config'
+CKPT_DIR = os.path.join('./ckpt', RUN_TIME)
+LOG_DIR = os.path.join('./runs', RUN_TIME)
 
 if not os.path.exists(CKPT_DIR):
     os.mkdir(CKPT_DIR)
+    
+if not os.path.exists(CFG_DIR):
+    os.mkdir(CFG_DIR)
 
-image_transform = transforms.Compose([
-    transforms.Grayscale(3),
-    ScaleImageByHeight(64),
-    transforms.ToTensor(),
-])
-
-train_data = get_dataset('train', image_transform)
-validation_data = get_dataset('val', image_transform)
-test_data = get_dataset('test', image_transform)
-
-train_loader = DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, collate_fn=collate_fn, num_workers=4)
-val_loader = DataLoader(validation_data, batch_size=config['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=4)
-test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=4)
-
-# train_loader = DataLoader(train_data, batch_size=64,
-#                           shuffle=True, collate_fn=collate_fn)
-# val_loader = DataLoader(validation_data, batch_size=32,
-#                         shuffle=False, collate_fn=collate_fn)
-# test_loader = DataLoader(test_data, batch_size=32,
-#                          shuffle=False, collate_fn=collate_fn)
+    config = {
+        'batch_size': 32,
+        'hidden_size': 256,
+        'attn_size': 256,
+        'max_length': 10,
+        'n_epochs_decrease_lr': 15,
+        'start_learning_rate': 1e-5,  # NOTE: paper start with 1e-8
+        'end_learning_rate': 1e-11,
+        'depth': 4,
+        'n_blocks': 3,
+        'growth_rate': 96,
+        'max_epoch': 200,
+        'weight_decay': 0,
+    }
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -65,7 +54,7 @@ def train_one_epoch(info, train_loader, encoder, decoder, optimizer, criterion, 
     losses = AverageMeter()
     accs = AverageMeter()
     
-    print('Training')
+    print('Training...')
 
     for i, (imgs, targets, targets_onehot, lengths) in enumerate(train_loader):
 
@@ -175,10 +164,26 @@ def train(info: dict):
         info['lr'] = config['start_learning_rate']
     else:
         print('Resume training...')
-        print(f'Epoch: {info["epoch"]}')
+        print(f'Epoch: {info["epoch"]}/{info["max_epoch"]}')
         print(f'Best validation accuracy: {info["best_val_accs"]:05.3f}')
         print(f'Learning rate: {info["lr"]}')
 
+    image_transform = transforms.Compose([
+        transforms.Grayscale(3),
+        ScaleImageByHeight(64),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
+    ])
+
+    train_data = get_dataset('train', image_transform)
+    validation_data = get_dataset('val', image_transform)
+    test_data = get_dataset('test', image_transform)
+
+    train_loader = DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, collate_fn=collate_fn, num_workers=4)
+    val_loader = DataLoader(validation_data, batch_size=config['batch_size'], shuffle=False, collate_fn=collate_fn, num_workers=4)
+    test_loader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=4)
+        
     encoder = Encoder(
         config['depth'], config['n_blocks'], config['growth_rate'])
     if info['encoder_state'] is not None:
@@ -190,25 +195,27 @@ def train(info: dict):
         decoder.load_state_dict(info['decoder_state'])
 
     params = list(encoder.parameters()) + list(decoder.parameters())
-    optimizer = optim.Adam(params, lr=config['start_learning_rate'])
+    optimizer = optim.RMSprop(params, lr=config['start_learning_rate'], weight_decay=config['weight_decay'])
     if info['optimizer_state'] is not None:
         optimizer.load_state_dict(info['optimizer_state'])
 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 'min',
         patience=config['n_epochs_decrease_lr'],
-        min_lr=config['end_learning_rate'], verbose=True)
+        threshold=0.0001,
+        threshold_mode='abs',
+        min_lr=config['end_learning_rate'],
+        verbose=True)
     if info['scheduler_state'] is not None:
         scheduler.load_state_dict(info['scheduler_state'])
 
     encoder = encoder.to(device)
     decoder = decoder.to(device)
     criterion = nn.CrossEntropyLoss().to(device)
-    writer = SummaryWriter()
+    writer = SummaryWriter(log_dir=LOG_DIR)
 
     print('Start training...')
-    while True:
-        info['epoch'] += 1
+    for info['epoch'] in range(info['epoch'], config['max_epoch']):
         train_loss, train_acc = train_one_epoch(
             info, train_loader, encoder, decoder, optimizer, criterion, writer, log_interval=100)
         val_loss, val_acc = validate(
@@ -230,11 +237,18 @@ def train(info: dict):
         if info['lr'] <= config['end_learning_rate']:
             print('Reach min learning rate. Stop training...')
             break
+            
+    writer.close()
 
     return encoder, decoder, info
 
 
 def run(args):
+    global config
+    
+    if args.config is not None:
+        with open(args.config, 'r') as f:
+            config = json.load(f)
     
     print('=' * 60)
     for k, v in sorted(config.items(), key=lambda i: i[0]):
@@ -250,6 +264,7 @@ def run(args):
             print(e)
     
     encoder, decoder, info = train(info)
+            
     print('=' * 60)
     print('Number training epochs: ', info['epoch'])
     print('Best validation accuracy: ', info['best_val_accs'])
@@ -259,6 +274,7 @@ def run(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--resume', type=str)
+    parser.add_argument('--config', type=str, default=os.path.join(CFG_DIR, 'config.json'))
     args = parser.parse_args()
 
     run(args)
