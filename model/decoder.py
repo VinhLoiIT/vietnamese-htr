@@ -49,23 +49,26 @@ class Decoder(nn.Module):
         outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
         weights = torch.zeros(max_length, batch_size, num_pixels, device=img_features.device) 
 
-        # pdb.set_trace()
-        for t in range(max_length - 1):
-            context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
+        teacher_force = random.random() < teacher_forcing_ratio
+        if self.training and teacher_force:
+            for t in range(max_length - 1):
+                context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
+                output, hidden = self.rnn(torch.cat((rnn_input, context), -1), hidden)
+                output = self.character_distribution(output)
 
-            teacher_force = random.random() < teacher_forcing_ratio
-            if self.training and teacher_force:
-                rnn_input = torch.cat((targets[[t]], context), -1)
-            else:
-                rnn_input = torch.cat((rnn_input, context), -1)
+                outputs[[t]] = output
+                weights[[t]] = weight.transpose(0, 2)
 
-            output, hidden = self.rnn(rnn_input, hidden)
-            output = self.character_distribution(output)
+                rnn_input = targets[[t]]
+        else:
+            for t in range(max_length - 1):
+                context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
+                output, hidden = self.rnn(torch.cat((rnn_input, context), -1), hidden)
+                output = self.character_distribution(output)
 
-            outputs[[t]] = output
-            weights[[t]] = weight.transpose(0, 2)
-            
-            rnn_input = output
+                outputs[[t]] = output
+                weights[[t]] = weight.transpose(0, 2)
+                rnn_input = output
             
         return outputs, weights
     
@@ -95,3 +98,43 @@ class Decoder(nn.Module):
             rnn_input = output
 
         return outputs, weights
+    
+    def beamsearch(self, img_features, start_input, max_length=10, beam_size=3):
+        num_pixels = img_features.size(0)
+        batch_size = img_features.size(1)
+
+        rnn_input = start_input
+
+        hidden = self.init_hidden(batch_size).to(img_features.device)
+
+        outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
+        weights = torch.zeros(max_length, batch_size, num_pixels, device=img_features.device)
+        
+        terminal_words, prev_top_words, next_top_words = [], [], []
+        prev_top_words.append(rnn_input)
+
+        pdb.set_trace()
+        for t in range(max_length):
+            for word in prev_top_words:
+                context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
+
+                rnn_input = torch.cat((rnn_input, context), -1)
+
+                output, hidden = self.rnn(rnn_input, hidden)
+                output = self.character_distribution(output)
+                
+                topv, topi = output.topk(beam_size, -1)
+#                 if topi==10:
+                    
+#                 term, top = word.addTopk(topi, topv, decoder_hidden, beam_size, voc)
+#                 terminal_words.extend(term)
+#                 next_top_words.extend(top)
+
+            next_top_words.sort(key=lambda s: s[1], reverse=True)
+            prev_top_words = next_top_words[:beam_size]
+            next_top_words = []
+        terminal_words += [word.toWordScore(voc) for word in prev_top_words]
+        terminal_words.sort(key=lambda x: x[1], reverse=True)
+
+        n = min(len(terminal_words), 15)
+        return terminal_words[:n]

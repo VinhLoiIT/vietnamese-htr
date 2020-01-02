@@ -153,8 +153,8 @@ def get_lr(optimizer):
         return param_group['lr']
 
 
-def save_checkpoint(info, is_best=False):
-    filename = 'weights.pt'
+def save_checkpoint(info, epoch, val_acc, is_best=False):
+    filename = 'weights_'+str(epoch)+'_'+str(val_acc)+'.pt'
     ckpt_path = os.path.join(CKPT_DIR, filename)
     torch.save(info, ckpt_path)
     if is_best:
@@ -223,9 +223,9 @@ def train(info: dict):
 
         if val_acc > info['best_val_accs']:
             info['best_val_accs'] = val_acc
-            save_checkpoint(info, True)
+            save_checkpoint(info, info['epoch'], val_acc, True)
         else:
-            save_checkpoint(info, False)
+            save_checkpoint(info, info['epoch'], val_acc, False)
 
         if info['lr'] <= config['end_learning_rate']:
             print('Reach min learning rate. Stop training...')
