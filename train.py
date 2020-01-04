@@ -170,7 +170,7 @@ def train(info: dict):
 
     image_transform = transforms.Compose([
         transforms.Grayscale(3),
-        ScaleImageByHeight(64),
+        ScaleImageByHeight(128),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
