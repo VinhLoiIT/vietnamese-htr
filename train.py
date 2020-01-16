@@ -37,10 +37,9 @@ config = {
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def main():
-       
     encoder = Encoder(config['depth'], config['n_blocks'], config['growth_rate'])
     decoder = Decoder(encoder.n_features, config['hidden_size'], vocab_size, config['attn_size'])
-    
+
     params = list(encoder.parameters()) + list(decoder.parameters())
     optimizer = optim.RMSprop(params, lr=config['start_learning_rate'], weight_decay=config['weight_decay'])
     reduce_lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -59,7 +58,7 @@ def main():
 
     train_data = get_dataset('train', image_transform)
     validation_data = get_dataset('val', image_transform)
-    
+
     # NOTE: try on small subset of data to make sure it works before running on all data!
     # train_loader = DataLoader(train_data, batch_size=config['batch_size'], 
     #                           shuffle=False, collate_fn=collate_fn, num_workers=12, sampler=torch.utils.data.SubsetRandomSampler(np.random.permutation(256)))
@@ -68,7 +67,7 @@ def main():
 
     train_loader = DataLoader(train_data, batch_size=config['batch_size'], 
                               shuffle=True, collate_fn=collate_fn, num_workers=12)
-    
+
     val_loader = DataLoader(validation_data, batch_size=config['batch_size'], 
                             shuffle=False, collate_fn=collate_fn, num_workers=12)
 
@@ -77,7 +76,7 @@ def main():
     criterion = nn.CrossEntropyLoss().to(device)
 
     writer = SummaryWriter()
-    
+
     def step_train(engine, batch):
         encoder.train()
         decoder.train()
@@ -90,12 +89,12 @@ def main():
         targets_onehot = targets_onehot.to(device)
 
         img_features = encoder(imgs)
-        outputs, _ = decoder(img_features, targets_onehot)
+        outputs, _ = decoder(img_features, targets_onehot[1:], targets_onehot[[0]])
 
         packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
-            outputs, lengths.squeeze())[0]
+            outputs, (lengths - 1).squeeze())[0]
         packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
-            targets.squeeze(), lengths.squeeze())[0]
+            targets[1:].squeeze(), (lengths - 1).squeeze())[0]
 
         loss = criterion(packed_outputs, packed_targets)
         loss.backward()
@@ -115,12 +114,12 @@ def main():
             targets_onehot = targets_onehot.to(device)
 
             img_features = encoder(imgs)
-            outputs, _ = decoder(img_features, targets_onehot)
+            outputs, _ = decoder(img_features, targets_onehot[1:], targets_onehot[[0]])
 
             packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
-                outputs, lengths.squeeze())[0]
+                outputs, (lengths - 1).squeeze())[0]
             packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
-                targets.squeeze(), lengths.squeeze())[0]
+                targets[1:].squeeze(), (lengths - 1).squeeze())[0]
 
             return packed_outputs, packed_targets
 
@@ -131,7 +130,7 @@ def main():
     metrics.RunningAverage(metrics.Accuracy()).attach(trainer, 'running_train_acc')
     metrics.RunningAverage(metrics.Loss(criterion)).attach(evaluator, 'running_val_loss')
     metrics.RunningAverage(metrics.Accuracy()).attach(evaluator, 'running_val_acc')
-    
+
     training_timer = ignite.handlers.Timer(average=True).attach(trainer)
 
     @trainer.on(ignite.engine.Events.STARTED)
@@ -162,11 +161,11 @@ def main():
     def validate(engine):
         evaluator.run(val_loader)
 
-    @evaluator.on(ignite.engine.Events.ITERATION_COMPLETED)
+    @evaluator.on(ignite.engine.Events.EPOCH_COMPLETED)
     def log_validation_tensorboard(engine):
-        writer.add_scalar("Validation/Loss", engine.state.metrics['running_val_loss'], engine.state.iteration)
-        writer.add_scalar("Validation/Accuracy", engine.state.metrics['running_val_acc'], engine.state.iteration)
-    
+        writer.add_scalar("Validation/Loss", engine.state.metrics['running_val_loss'], engine.state.epoch)
+        writer.add_scalar("Validation/Accuracy", engine.state.metrics['running_val_acc'], engine.state.epoch)
+
     @evaluator.on(ignite.engine.Events.ITERATION_COMPLETED(every=50))
     def log_validation_terminal(engine):
         print("Validate - Epoch: {} - Iter {}/{} - Avg accuracy: {:.3f} Avg loss: {:.3f}"
@@ -177,16 +176,16 @@ def main():
     def update_scheduler(engine):
         found_better = reduce_lr_scheduler.is_better(engine.state.metrics['running_val_loss'], reduce_lr_scheduler.best)
         reduce_lr_scheduler.step(engine.state.metrics['running_val_loss'])
-        
+
         to_save = {'encoder': encoder.state_dict(), 'decoder': decoder.state_dict(), 
                    'optimizer': optimizer.state_dict(), 'lr_scheduler': reduce_lr_scheduler.state_dict()}
         if found_better:
-            torch.save(to_save, os.path.join(CKPT_DIR, f'BEST_weights.pt'))
+            torch.save(to_save, os.path.join(CKPT_DIR, 'BEST_weights.pt'))
         torch.save(to_save, os.path.join(CKPT_DIR, 'weights.pt'))
 
     trainer.run(train_loader, max_epochs=config['max_epochs'])
     # trainer.run(train_loader, max_epochs=2)
-    
+
     writer.close()
 
 main()

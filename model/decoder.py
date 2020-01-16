@@ -29,10 +29,11 @@ class Decoder(nn.Module):
     def init_hidden(self, batch_size):
         return torch.zeros(1, batch_size, self.hidden_size)
 
-    def forward(self, img_features, targets, teacher_forcing_ratio=0.5):
+    def forward(self, img_features, targets, start_input, teacher_forcing_ratio=0.5):
         '''
         :param img_features: tensor of [num_pixels, B, C]
-        :param targets: tensor of [T, B, V], each target has <start> and <end> at begin and end of the word
+        :param targets: tensor of [T, B, V], each target <end> at the end of the word
+        :param start_input: tensor of [1, B, V]
         :return:
             outputs: tensor of [T, B, V]
             weights: tensor of [T, B, num_pixels]
@@ -43,7 +44,7 @@ class Decoder(nn.Module):
         max_length = targets.size(0)
 
         targets = targets.float()
-        rnn_input = targets[[0]].float() # [1, B, V]
+        rnn_input = start_input.float() # [1, B, V]
         hidden = self.init_hidden(batch_size).to(img_features.device)
 
         outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
