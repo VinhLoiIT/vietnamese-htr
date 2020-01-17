@@ -179,35 +179,35 @@ def main(args):
         state = engine.state
         writer.add_scalar("Train/Loss", state.metrics['running_train_loss'], state.iteration)
         writer.add_scalar("Train/Accuracy", state.metrics['running_train_acc'], state.iteration)
-        writer.add_scalar("Train/Timer", batch_train_timer.value(), state.iteration)
 
     @trainer.on(Events.ITERATION_COMPLETED(every=args.log_interval))
     def log_training_terminal(engine):
-        print("Train - Epoch: {} - Iter {} - Accuracy: {:.3f} Loss: {:.3f}"
+        print("Train - Epoch: {} - Iter {} - Accuracy: {:.3f} Loss: {:.3f} Avg Time: {:.2f}"
               .format(engine.state.epoch, engine.state.iteration,
                       engine.state.metrics['running_train_acc'],
-                      engine.state.metrics['running_train_loss']))
+                      engine.state.metrics['running_train_loss'],
+                      batch_train_timer.value()))
 
     @trainer.on(Events.EPOCH_COMPLETED)
     def validate(engine):
+        writer.add_scalar("Train/Time", epoch_train_timer.value(), engine.state.epoch)
         print('Train - Epoch: {} - Avg Time: {:3.2f}s'
               .format(engine.state.epoch, epoch_train_timer.value()))
         state = evaluator.run(val_loader)
         print('Validate - Epoch: {} - Avg Time: {:3.2f}s'
               .format(engine.state.epoch, validate_timer.value()))
-        writer.add_scalar("Train/Time",
-                          epoch_train_timer.value(), engine.state.epoch)
         writer.add_scalar("Validation/Loss",
                           state.metrics['running_val_loss'],
                           engine.state.epoch) # use trainer's state.epoch
         writer.add_scalar("Validation/Accuracy",
                           state.metrics['running_val_acc'],
                           engine.state.epoch)
+        writer.add_scalar("Validation/Time", validate_timer.value(), engine.state.epoch)
 
     @evaluator.on(Events.ITERATION_COMPLETED(every=args.log_interval))
     def log_validation_terminal(engine):
-        print("Validate - Epoch: {} - Iter {}/{} - Avg accuracy: {:.3f} Avg loss: {:.3f}"
-              .format(engine.state.epoch, engine.state.iteration, len(val_loader),
+        print("Validate - Iter {}/{} - Avg accuracy: {:.3f} Avg loss: {:.3f}"
+              .format(engine.state.iteration, len(val_loader),
                       engine.state.metrics['running_val_acc'], engine.state.metrics['running_val_loss']))
 
     @evaluator.on(Events.COMPLETED)
