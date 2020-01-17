@@ -1,81 +1,94 @@
-# import argparse
+import argparse
 import os
-import numpy as np
-import ignite
-import ignite.metrics as metrics
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from ignite.engine import Engine, Events
+from ignite.handlers import Timer
+from ignite.metrics import Accuracy, Loss, RunningAverage
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
-from dataset import collate_fn, get_dataset, vocab_size
+from dataset import get_data_loader, vocab_size
 from model.decoder import Decoder
 from model.encoder import Encoder
 from utils import ScaleImageByHeight
 
-CKPT_DIR = './ckpt'
-if not os.path.exists(CKPT_DIR):
-    os.mkdir(CKPT_DIR)
 
-config = {
-    'batch_size': 32,
-    'hidden_size': 256,
-    'attn_size': 256,
-    'max_length': 10,
-    'n_epochs_decrease_lr': 15,
-    'start_learning_rate': 1e-5,  # NOTE: paper start with 1e-8
-    'end_learning_rate': 1e-11,
-    'depth': 4,
-    'n_blocks': 3,
-    'growth_rate': 96,
-    'max_epochs': 100,
-    'weight_decay': 0,
-}
+def main(args):
+    config = {
+        'batch_size': 32,
+        'scale_height': 128,
+        'hidden_size': 256,
+        'attn_size': 256,
+        'max_length': 10,
+        'n_epochs_decrease_lr': 15,
+        'start_learning_rate': 1e-5,  # NOTE: paper start with 1e-8
+        'end_learning_rate': 1e-11,
+        'depth': 4,
+        'n_blocks': 3,
+        'growth_rate': 96,
+        'max_epochs': 50,
+        'weight_decay': 0,
+    }
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu'
+    print('Device = {}'.format(device))
+    
+    if args.resume:
+        print('Resuming from {}'.format(args.resume))
+        checkpoint = torch.load(args.resume, map_location=device)
+        config = checkpoint['config']
 
-def main():
-    encoder = Encoder(config['depth'], config['n_blocks'], config['growth_rate'])
-    decoder = Decoder(encoder.n_features, config['hidden_size'], vocab_size, config['attn_size'])
+    encoder = Encoder(config['depth'],
+                      config['n_blocks'],
+                      config['growth_rate'])
 
-    params = list(encoder.parameters()) + list(decoder.parameters())
-    optimizer = optim.RMSprop(params, lr=config['start_learning_rate'], weight_decay=config['weight_decay'])
-    reduce_lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, 'min',
-        patience=config['n_epochs_decrease_lr'],
-        threshold=0.005,
-        threshold_mode='abs',
-        min_lr=config['end_learning_rate'],
-        verbose=True)
-
-    image_transform = transforms.Compose([
-        transforms.Grayscale(3),
-        ScaleImageByHeight(128),
-        transforms.ToTensor(),
-    ])
-
-    train_data = get_dataset('train', image_transform)
-    validation_data = get_dataset('val', image_transform)
-
-    # NOTE: try on small subset of data to make sure it works before running on all data!
-    # train_loader = DataLoader(train_data, batch_size=config['batch_size'], 
-    #                           shuffle=False, collate_fn=collate_fn, num_workers=12, sampler=torch.utils.data.SubsetRandomSampler(np.random.permutation(256)))
-    # val_loader = DataLoader(validation_data, batch_size=config['batch_size'], 
-    #                         shuffle=False, collate_fn=collate_fn, num_workers=12, sampler=torch.utils.data.SubsetRandomSampler(np.random.permutation(256)))
-
-    train_loader = DataLoader(train_data, batch_size=config['batch_size'], 
-                              shuffle=True, collate_fn=collate_fn, num_workers=12)
-
-    val_loader = DataLoader(validation_data, batch_size=config['batch_size'], 
-                            shuffle=False, collate_fn=collate_fn, num_workers=12)
+    decoder = Decoder(encoder.n_features,
+                      config['hidden_size'],
+                      vocab_size,
+                      config['attn_size'])
 
     encoder = encoder.to(device)
     decoder = decoder.to(device)
     criterion = nn.CrossEntropyLoss().to(device)
 
+    params = list(encoder.parameters()) + list(decoder.parameters())
+    optimizer = optim.RMSprop(params,
+                              lr=config['start_learning_rate'],
+                              weight_decay=config['weight_decay'])
+    reduce_lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 'min',
+        patience=config['n_epochs_decrease_lr'],
+        min_lr=config['end_learning_rate'],
+        verbose=True)
+    
+    if args.resume:
+        encoder.load_state_dict(checkpoint['encoder'])
+        decoder.load_state_dict(checkpoint['decoder'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        reduce_lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+
+    image_transform = transforms.Compose([
+        transforms.Grayscale(3),
+        ScaleImageByHeight(config['scale_height']),
+        transforms.ToTensor(),
+    ])
+
+    train_loader = get_data_loader('train', config['batch_size'],
+                                   image_transform, args.debug)
+
+    val_loader = get_data_loader('val', config['batch_size'],
+                                 image_transform, args.debug)
+
     writer = SummaryWriter()
+    CKPT_DIR = os.path.join(writer.get_logdir(), 'weights')
+    if not os.path.exists(CKPT_DIR):
+        os.mkdir(CKPT_DIR)
+        
+    # writer.add_graph(encoder, verbose=True)
+    # writer.add_graph(decoder, verbose=True)
 
     def step_train(engine, batch):
         encoder.train()
@@ -89,7 +102,9 @@ def main():
         targets_onehot = targets_onehot.to(device)
 
         img_features = encoder(imgs)
-        outputs, _ = decoder(img_features, targets_onehot[1:], targets_onehot[[0]])
+        outputs, _ = decoder(img_features,
+                             targets_onehot[1:],
+                             targets_onehot[[0]])
 
         packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
             outputs, (lengths - 1).squeeze())[0]
@@ -114,7 +129,9 @@ def main():
             targets_onehot = targets_onehot.to(device)
 
             img_features = encoder(imgs)
-            outputs, _ = decoder(img_features, targets_onehot[1:], targets_onehot[[0]])
+            outputs, _ = decoder(img_features,
+                                 targets_onehot[1:],
+                                 targets_onehot[[0]])
 
             packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
                 outputs, (lengths - 1).squeeze())[0]
@@ -123,17 +140,28 @@ def main():
 
             return packed_outputs, packed_targets
 
-    trainer = ignite.engine.Engine(step_train)
-    evaluator = ignite.engine.Engine(step_val)
+    trainer = Engine(step_train)
+    evaluator = Engine(step_val)
 
-    metrics.RunningAverage(metrics.Loss(criterion)).attach(trainer, 'running_train_loss')
-    metrics.RunningAverage(metrics.Accuracy()).attach(trainer, 'running_train_acc')
-    metrics.RunningAverage(metrics.Loss(criterion)).attach(evaluator, 'running_val_loss')
-    metrics.RunningAverage(metrics.Accuracy()).attach(evaluator, 'running_val_acc')
+    RunningAverage(Loss(criterion)).attach(trainer, 'running_train_loss')
+    RunningAverage(Accuracy()).attach(trainer, 'running_train_acc')
+    RunningAverage(Loss(criterion)).attach(evaluator, 'running_val_loss')
+    RunningAverage(Accuracy()).attach(evaluator, 'running_val_acc')
 
-    training_timer = ignite.handlers.Timer(average=True).attach(trainer)
+    training_timer = Timer(average=True).attach(trainer)
+    epoch_train_timer = Timer(True).attach(trainer,
+                                           start=Events.EPOCH_STARTED,
+                                           pause=Events.EPOCH_COMPLETED,
+                                           step=Events.EPOCH_COMPLETED)
+    batch_train_timer = Timer(True).attach(trainer,
+                                           start=Events.EPOCH_STARTED,
+                                           resume=Events.ITERATION_STARTED,
+                                           pause=Events.ITERATION_COMPLETED,
+                                           step=Events.ITERATION_COMPLETED)
 
-    @trainer.on(ignite.engine.Events.STARTED)
+    validate_timer = Timer(average=True).attach(evaluator)
+
+    @trainer.on(Events.STARTED)
     def start_training(engine):
         print('Config..')
         print('='*60)
@@ -141,58 +169,70 @@ def main():
         print('='*60)
         print('Start training..')
 
-    @trainer.on(ignite.engine.Events.COMPLETED)
+    @trainer.on(Events.COMPLETED)
     def end_training(engine):
         print('Training completed!!')
         print('Total training time: {:3.2f}s'.format(training_timer.value()))
 
-    @trainer.on(ignite.engine.Events.ITERATION_COMPLETED)
+    @trainer.on(Events.ITERATION_COMPLETED)
     def log_training_tensorboard(engine):
-        writer.add_scalar("Train/Loss", engine.state.metrics['running_train_loss'], engine.state.iteration)
-        writer.add_scalar("Train/Accuracy", engine.state.metrics['running_train_acc'], engine.state.iteration)
+        state = engine.state
+        writer.add_scalar("Train/Loss", state.metrics['running_train_loss'], state.iteration)
+        writer.add_scalar("Train/Accuracy", state.metrics['running_train_acc'], state.iteration)
+        writer.add_scalar("Train/Timer", batch_train_timer.value(), state.iteration)
 
-    @trainer.on(ignite.engine.Events.ITERATION_COMPLETED(every=50))
+    @trainer.on(Events.ITERATION_COMPLETED(every=args.log_interval))
     def log_training_terminal(engine):
         print("Train - Epoch: {} - Iter {} - Accuracy: {:.3f} Loss: {:.3f}"
-              .format(engine.state.epoch, engine.state.iteration, 
-                      engine.state.metrics['running_train_acc'], engine.state.metrics['running_train_loss']))
+              .format(engine.state.epoch, engine.state.iteration,
+                      engine.state.metrics['running_train_acc'],
+                      engine.state.metrics['running_train_loss']))
 
-    @trainer.on(ignite.engine.Events.EPOCH_COMPLETED)
+    @trainer.on(Events.EPOCH_COMPLETED)
     def validate(engine):
-        evaluator.run(val_loader)
+        print('Train - Epoch: {} - Avg Time: {:3.2f}s'
+              .format(engine.state.epoch, epoch_train_timer.value()))
+        state = evaluator.run(val_loader)
+        print('Validate - Epoch: {} - Avg Time: {:3.2f}s'
+              .format(engine.state.epoch, validate_timer.value()))
+        writer.add_scalar("Train/Time",
+                          epoch_train_timer.value(), engine.state.epoch)
+        writer.add_scalar("Validation/Loss",
+                          state.metrics['running_val_loss'],
+                          engine.state.epoch) # use trainer's state.epoch
+        writer.add_scalar("Validation/Accuracy",
+                          state.metrics['running_val_acc'],
+                          engine.state.epoch)
 
-    @evaluator.on(ignite.engine.Events.EPOCH_COMPLETED)
-    def log_validation_tensorboard(engine):
-        writer.add_scalar("Validation/Loss", engine.state.metrics['running_val_loss'], engine.state.epoch)
-        writer.add_scalar("Validation/Accuracy", engine.state.metrics['running_val_acc'], engine.state.epoch)
-
-    @evaluator.on(ignite.engine.Events.ITERATION_COMPLETED(every=50))
+    @evaluator.on(Events.ITERATION_COMPLETED(every=args.log_interval))
     def log_validation_terminal(engine):
         print("Validate - Epoch: {} - Iter {}/{} - Avg accuracy: {:.3f} Avg loss: {:.3f}"
               .format(engine.state.epoch, engine.state.iteration, len(val_loader),
                       engine.state.metrics['running_val_acc'], engine.state.metrics['running_val_loss']))
 
-    @evaluator.on(ignite.engine.Events.COMPLETED)
+    @evaluator.on(Events.COMPLETED)
     def update_scheduler(engine):
         found_better = reduce_lr_scheduler.is_better(engine.state.metrics['running_val_loss'], reduce_lr_scheduler.best)
         reduce_lr_scheduler.step(engine.state.metrics['running_val_loss'])
 
-        to_save = {'encoder': encoder.state_dict(), 'decoder': decoder.state_dict(), 
+        to_save = {'config': config,
+                   'encoder': encoder.state_dict(), 'decoder': decoder.state_dict(), 
                    'optimizer': optimizer.state_dict(), 'lr_scheduler': reduce_lr_scheduler.state_dict()}
         if found_better:
             torch.save(to_save, os.path.join(CKPT_DIR, 'BEST_weights.pt'))
-        torch.save(to_save, os.path.join(CKPT_DIR, 'weights.pt'))
+        filename = 'weights_val_loss_{:.3f}_val_acc_{:.3f}.pt'.format(engine.state.metrics['running_val_loss'],
+                                                                      engine.state.metrics['running_val_acc'])
+        torch.save(to_save, os.path.join(CKPT_DIR, filename))
 
-    trainer.run(train_loader, max_epochs=config['max_epochs'])
-    # trainer.run(train_loader, max_epochs=2)
-
+    trainer.run(train_loader, max_epochs=2 if args.debug else config['max_epochs'])
     writer.close()
 
-main()
-# if __name__ == '__main__':
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--resume', type=str)
-#     parser.add_argument('--config', type=str, default=os.path.join(CFG_DIR, 'config.json'))
-#     args = parser.parse_args()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--debug', dest='debug', action='store_true', default=False)
+    parser.add_argument('--gpu_id', type=int, default=0)
+    parser.add_argument('--log_interval', type=int, default=50)
+    parser.add_argument('--resume', type=str)
+    args = parser.parse_args()
 
-#     run(args)
+    main(args)

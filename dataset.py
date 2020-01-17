@@ -1,7 +1,10 @@
 import os
-import torch
+
+import numpy as np
 import pandas as pd
+import torch
 from PIL import Image
+from torch.utils.data import DataLoader, Dataset, SubsetRandomSampler
 
 SOS_CHAR = '<start>' # start of sequence character
 EOS_CHAR = '<end>' # end of sequence character
@@ -15,7 +18,7 @@ int2char = dict((i, c) for i, c in enumerate(alphabets))
 vocab_size = len(alphabets)
 
 
-class VNOnDB(torch.utils.data.Dataset):
+class VNOnDB(Dataset):
     def __init__(self, image_folder, csv, image_transform=None):
         self.df = pd.read_csv(csv, sep='\t', keep_default_na=False, index_col=0)
         self.image_folder = image_folder
@@ -46,6 +49,17 @@ def get_dataset(dataset, transform):
         return VNOnDB('./data/VNOnDB/word_train', './data/VNOnDB/train_word.csv', transform)
     if dataset == 'val':
         return VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv', transform)
+    
+def get_data_loader(dataset, batch_size, transform=None, debug=False):
+    data = get_dataset(dataset, transform)
+    if debug:
+        loader = DataLoader(data, batch_size=batch_size,
+                            shuffle=False, collate_fn=collate_fn, num_workers=12,
+                            sampler=SubsetRandomSampler(np.random.permutation(min(batch_size * 5, len(data)))))
+    else:
+        loader = DataLoader(data, batch_size=batch_size,
+                            shuffle=False, collate_fn=collate_fn, num_workers=12)
+    return loader
     
 def collate_fn(samples):
     '''
