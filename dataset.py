@@ -54,11 +54,11 @@ def get_data_loader(dataset, batch_size, transform=None, debug=False):
     data = get_dataset(dataset, transform)
     if debug:
         loader = DataLoader(data, batch_size=batch_size,
-                            shuffle=False, collate_fn=collate_fn, num_workers=12,
+                            shuffle=False, collate_fn=collate_fn, num_workers=4,
                             sampler=SubsetRandomSampler(np.random.permutation(min(batch_size * 5, len(data)))))
     else:
         loader = DataLoader(data, batch_size=batch_size,
-                            shuffle=False, collate_fn=collate_fn, num_workers=12)
+                            shuffle=False, collate_fn=collate_fn, num_workers=4)
     return loader
     
 def collate_fn(samples):
