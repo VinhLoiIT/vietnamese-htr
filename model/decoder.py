@@ -50,25 +50,18 @@ class Decoder(nn.Module):
         outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
         weights = torch.zeros(max_length, batch_size, num_pixels, device=img_features.device) 
 
-        teacher_force = random.random() < teacher_forcing_ratio
-        if self.training and teacher_force:
-            for t in range(max_length - 1):
-                context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
-                output, hidden = self.rnn(torch.cat((rnn_input, context), -1), hidden)
-                output = self.character_distribution(output)
+        for t in range(max_length - 1):
+            context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
+            output, hidden = self.rnn(torch.cat((rnn_input, context), -1), hidden)
+            output = self.character_distribution(output)
 
-                outputs[[t]] = output
-                weights[[t]] = weight.transpose(0, 2)
+            outputs[[t]] = output
+            weights[[t]] = weight.transpose(0, 2)
 
+            teacher_force = random.random() < teacher_forcing_ratio
+            if self.training and teacher_force:
                 rnn_input = targets[[t]]
-        else:
-            for t in range(max_length - 1):
-                context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
-                output, hidden = self.rnn(torch.cat((rnn_input, context), -1), hidden)
-                output = self.character_distribution(output)
-
-                outputs[[t]] = output
-                weights[[t]] = weight.transpose(0, 2)
+            else:
                 rnn_input = output
             
         return outputs, weights

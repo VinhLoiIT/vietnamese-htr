@@ -18,7 +18,7 @@ from utils import ScaleImageByHeight
 def main(args):
     config = {
         'batch_size': 32,
-        'scale_height': 128,
+        'scale_height': 64,
         'hidden_size': 256,
         'attn_size': 256,
         'max_length': 10,
@@ -43,7 +43,6 @@ def main(args):
     cnn = DenseNetFE(config['depth'],
                      config['n_blocks'],
                      config['growth_rate'])
-
 
     decoder = Decoder(cnn.n_features,
                       config['hidden_size'],
@@ -99,7 +98,7 @@ def main(args):
         targets = targets.to(device)
         targets_onehot = targets_onehot.to(device)
 
-        outputs, _ = model.forward(imgs, targets, output_weight=False)
+        outputs, _ = model.forward(imgs, targets_onehot, output_weight=False)
 
         packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
             outputs, (lengths - 1).squeeze())[0]
@@ -122,7 +121,7 @@ def main(args):
             targets = targets.to(device)
             targets_onehot = targets_onehot.to(device)
 
-            outputs, _ = model.forward(imgs, targets, output_weight=False)
+            outputs, _ = model.forward(imgs, targets_onehot, output_weight=False)
 
             packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
                 outputs, (lengths - 1).squeeze())[0]
@@ -144,11 +143,7 @@ def main(args):
                                            start=Events.EPOCH_STARTED,
                                            pause=Events.EPOCH_COMPLETED,
                                            step=Events.EPOCH_COMPLETED)
-    batch_train_timer = Timer(True).attach(trainer,
-                                           start=Events.EPOCH_STARTED,
-                                           resume=Events.ITERATION_STARTED,
-                                           pause=Events.ITERATION_COMPLETED,
-                                           step=Events.ITERATION_COMPLETED)
+    batch_train_timer = Timer(True).attach(trainer)
 
     validate_timer = Timer(average=True).attach(evaluator)
 
@@ -173,11 +168,14 @@ def main(args):
 
     @trainer.on(Events.ITERATION_COMPLETED(every=args.log_interval))
     def log_training_terminal(engine):
+        batch_train_timer.pause()
+        batch_train_timer.step()
         print("Train - Epoch: {} - Iter {} - Accuracy: {:.3f} Loss: {:.3f} Avg Time: {:.2f}"
               .format(engine.state.epoch, engine.state.iteration,
                       engine.state.metrics['running_train_acc'],
                       engine.state.metrics['running_train_loss'],
                       batch_train_timer.value()))
+        batch_train_timer.resume()
 
     @trainer.on(Events.EPOCH_COMPLETED)
     def validate(engine):

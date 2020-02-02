@@ -7,7 +7,7 @@ from .decoder import Decoder
 
 class Seq2Seq(nn.Module):
     def __init__(self, cnn, decoder):
-        super(Seq2Seq, self).__init__()
+        super().__init__()
         self.cnn = cnn
         self.decoder = decoder
 
@@ -20,19 +20,18 @@ class Seq2Seq(nn.Module):
         - predicts: [L, B, V]
         - weights: [L, B, H, W]
         '''
-
         batch_size, _, input_image_h, input_image_w = image.size()
         image_features = self.cnn(image) # [B, C', H', W']
-        feature_image_h, feature_image_w = image_features.size()[[-2, -1]]
-        image_features.view_(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
-        image_features.permute_(2,0,1) # [S, B, C']
+        feature_image_h, feature_image_w = image_features.size()[-2:]
+        image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
+        image_features = image_features.permute(2,0,1) # [S, B, C']
 
         predicts, weights = self.decoder.forward(image_features, target[1:], target[[0]])
 
         if not output_weight:
             return predicts, None
 
-        weights.view_(-1, batch_size, feature_image_h, feature_image_w)
+        weights = weights.view(-1, batch_size, feature_image_h, feature_image_w)
         weight_transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize((input_image_h, input_image_w)),
