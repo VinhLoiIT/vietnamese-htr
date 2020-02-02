@@ -12,7 +12,6 @@ from torchvision import transforms
 
 from dataset import get_data_loader, vocab_size, char2int, PAD_CHAR
 from model.transformer import TransformerModel
-from model.encoder import Encoder
 from utils import ScaleImageByHeight
 
 

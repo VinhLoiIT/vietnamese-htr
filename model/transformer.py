@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import math
-from .encoder import Encoder
+# from .encoder import Encoder
 
 
 class TransformerModel(nn.Module):
