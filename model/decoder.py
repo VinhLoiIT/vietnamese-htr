@@ -50,7 +50,7 @@ class Decoder(nn.Module):
         outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
         weights = torch.zeros(max_length, batch_size, num_pixels, device=img_features.device) 
 
-        for t in range(max_length - 1):
+        for t in range(max_length):
             context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
             output, hidden = self.rnn(torch.cat((rnn_input, context), -1), hidden)
             output = self.character_distribution(output)

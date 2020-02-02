@@ -31,10 +31,10 @@ class Seq2Seq(nn.Module):
         if not output_weight:
             return predicts, None
 
-        weights = weights.view(-1, batch_size, feature_image_h, feature_image_w)
-        weight_transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize((input_image_h, input_image_w)),
-        ])
-        weights = weight_transform(weights)
+#         weights = weights.view(batch_size, -1, feature_image_h, feature_image_w)
+#         weight_transform = transforms.Compose([
+#             transforms.ToPILImage(),
+#             transforms.Resize((input_image_h, input_image_w)),
+#         ])
+#         weights_result = [weight_transform(weight) for weight in weights.cpu()]
         return predicts, weights
