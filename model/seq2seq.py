@@ -6,10 +6,10 @@ import torchvision.transforms as transforms
 from .decoder import Decoder
 
 class Seq2Seq(nn.Module):
-    def __init__(self, cnn, decoder):
+    def __init__(self, cnn, vocab_size, hidden_size, attn_size):
         super().__init__()
         self.cnn = cnn
-        self.decoder = decoder
+        self.decoder = Decoder(self.cnn.get_n_features(), hidden_size, vocab_size, attn_size)
 
     def forward(self, image, target=None, output_weight=True):
         '''

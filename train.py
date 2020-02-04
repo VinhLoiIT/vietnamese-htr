@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
 from dataset import get_data_loader, vocab_size
-from model import Seq2Seq, DenseNetFE, Decoder
+from model import Seq2Seq, DenseNetFE
 from utils import ScaleImageByHeight
 
 
@@ -44,12 +44,7 @@ def main(args):
                      config['n_blocks'],
                      config['growth_rate'])
 
-    decoder = Decoder(cnn.n_features,
-                      config['hidden_size'],
-                      vocab_size,
-                      config['attn_size'])
-
-    model = Seq2Seq(cnn, decoder)
+    model = Seq2Seq(cnn, vocab_size, config['hidden_size'], config['attn_size'])
     model.to(device)
 
     criterion = nn.CrossEntropyLoss().to(device)

@@ -3,45 +3,63 @@ import torch.nn as nn
 import torch.nn.functional as F
 import copy
 import math
+import random
 
 from .attention import Attention
 
 
-class TransformerModel(nn.Module):
-    def __init__(self, cnn_features, vocab_size, attn_size):
+class Transformer(nn.Module):
+    def __init__(self, cnn, vocab_size, attn_size):
         super().__init__()
 
-        encoder_layer = TransformerEncoderLayer(cnn_features, nhead=1)
-        self.encoder = TransformerEncoder(cnn_features, encoder_layer)
+        self.cnn = cnn
 
-        decoder_layer = TransformerDecoderLayer(cnn_features, vocab_size, attn_size, nhead=1)
+        # encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=1)
+        # self.encoder = TransformerEncoder(self.cnn.n_features, encoder_layer)
+
+        decoder_layer = TransformerDecoderLayer(self.cnn.n_features, vocab_size, attn_size, nhead=1)
         self.decoder = TransformerDecoder(attn_size, decoder_layer)
-        # self.transformer = TransformerDecoder(attn_size, decoder_layer, num_layers=1)
         
-        # self.encoder_attn = Attention(cnn_features, cnn_features, cnn_features)
-        self.character_distribution = nn.Linear(cnn_features, vocab_size)
-        self.vocab_size = vocab_size
+        self.character_distribution = nn.Linear(self.cnn.n_features, vocab_size)
         
-        self.positional_encoding_text = PositionalEncoding(vocab_size)
+        # self.positional_encoding_text = PositionalEncoding(vocab_size)
     
-    def forward(self, img_features, targets_onehot, start_input, output_weight=False):
-        max_length = targets_onehot.size(0)
-
+    def forward(self, images, targets, teacher_forcing_ratio=0.5, output_weight=False):
+        '''
+        :param images: [B,C,H,W]
+        :param targets: [L,B,V]
+        return
+        - outputs: [L,B,V]
+        - weights
+        '''
+        max_length = targets.size(0)
+        batch_size, _, input_image_h, input_image_w = images.size()
+        image_features = self.cnn(images) # [B, C', H', W']
+        feature_image_h, feature_image_w = image_features.size()[-2:]
+        image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
+        image_features = image_features.permute(2,0,1) # [S, B, C']
         # img_features = self.encoder.forward(img_features)
-        # Optional: PositionEncoding for imgs
-        # here ...
+
+        # targets = self.positional_encoding_text(targets.float())
+        # targets = self.linear_text(targets)
+
+        targets = targets.float()
+        outputs = targets[[0]]
+        targets = targets[1:]
         
-        # targets_onehot = self.positional_encoding_text(targets_onehot.float())
-        # targets_onehot = self.linear_text(targets_onehot)
-
-        outputs = start_input.float()
-
         for t in range(0, max_length):
             # transformer_input = self.positional_encoding_text(outputs)
             # transformer_input = self.linear_text(transformer_input)
-            output, weights = self.decoder.forward(outputs, img_features,
+            output, weights = self.decoder.forward(outputs, image_features,
                                                    output_weight=output_weight)
             output = self.character_distribution(output)
+            
+            # teacher_force = random.random() < teacher_forcing_ratio
+            # if self.training and teacher_force:
+            #     rnn_input = targets[[t]]
+            # else:
+            #     rnn_input = output
+
             outputs = torch.cat([outputs, output], dim=0)
 
         return outputs[1:], weights

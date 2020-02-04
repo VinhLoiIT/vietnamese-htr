@@ -11,14 +11,14 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
 from dataset import get_data_loader, vocab_size, char2int, PAD_CHAR
-from model.transformer import TransformerModel
+from model import Transformer, DenseNetFE
 from utils import ScaleImageByHeight
 
 
 def main(args):
     config = {
         'batch_size': 32,
-        'scale_height': 64,
+        'scale_height': 128,
         'hidden_size': 256,
         'attn_size': 256,
         'max_length': 10,
@@ -40,18 +40,16 @@ def main(args):
         checkpoint = torch.load(args.resume, map_location=device)
         config = checkpoint['config']
 
-    encoder = Encoder(config['depth'],
-                      config['n_blocks'],
-                      config['growth_rate'])
-    
-    decoder = TransformerModel(encoder.n_features, vocab_size, config['attn_size'])
+    cnn = DenseNetFE(config['depth'],
+                     config['n_blocks'],
+                     config['growth_rate'])
 
-    encoder = encoder.to(device)
-    decoder = decoder.to(device)
+    model = Transformer(cnn, vocab_size, config['attn_size'])
+    model.to(device)
+
     criterion = nn.CrossEntropyLoss().to(device)
 
-    params = list(encoder.parameters()) + list(decoder.parameters())
-    optimizer = optim.RMSprop(params,
+    optimizer = optim.RMSprop(model.parameters(),
                               lr=config['start_learning_rate'],
                               weight_decay=config['weight_decay'])
     reduce_lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -61,8 +59,7 @@ def main(args):
         verbose=True)
     
     if args.resume:
-        encoder.load_state_dict(checkpoint['encoder'])
-        decoder.load_state_dict(checkpoint['decoder'])
+        model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         reduce_lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
 
@@ -90,8 +87,7 @@ def main(args):
     # writer.add_graph(decoder, verbose=True)
 
     def step_train(engine, batch):
-        encoder.train()
-        decoder.train()
+        model.train()
         optimizer.zero_grad()
 
         imgs, targets, targets_onehot, lengths = batch
@@ -99,15 +95,13 @@ def main(args):
         imgs = imgs.to(device)
         targets = targets.to(device)
         targets_onehot = targets_onehot.to(device)
-        lengths = lengths - 1
 
-        img_features = encoder(imgs)
-        outputs, _ = decoder(img_features, targets_onehot[1:], targets_onehot[[0]])
+        outputs, _ = model.forward(imgs, targets_onehot, output_weight=False)
 
         packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
-            outputs, lengths.squeeze())[0]
+            outputs, (lengths - 1).squeeze())[0]
         packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
-            targets[1:].squeeze(), lengths.squeeze())[0]
+            targets[1:].squeeze(), (lengths - 1).squeeze())[0]
 
         loss = criterion(packed_outputs, packed_targets)
         loss.backward()
@@ -116,8 +110,7 @@ def main(args):
         return packed_outputs, packed_targets
 
     def step_val(engine, batch):
-        encoder.eval()
-        decoder.eval()
+        model.eval()
 
         with torch.no_grad():
             imgs, targets, targets_onehot, lengths = batch
@@ -125,15 +118,13 @@ def main(args):
             imgs = imgs.to(device)
             targets = targets.to(device)
             targets_onehot = targets_onehot.to(device)
-            lengths = lengths - 1
 
-            img_features = encoder(imgs)
-            outputs, _ = decoder(img_features, targets_onehot[1:], targets_onehot[[0]])
+            outputs, _ = model.forward(imgs, targets_onehot, output_weight=False)
 
             packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
-                outputs, lengths.squeeze())[0]
+                outputs, (lengths - 1).squeeze())[0]
             packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
-                targets[1:].squeeze(), lengths.squeeze())[0]
+                targets[1:].squeeze(), (lengths - 1).squeeze())[0]
 
             return packed_outputs, packed_targets
 
@@ -151,6 +142,7 @@ def main(args):
                                            pause=Events.EPOCH_COMPLETED,
                                            step=Events.EPOCH_COMPLETED)
     batch_train_timer = Timer(True).attach(trainer)
+
     validate_timer = Timer(average=True).attach(evaluator)
 
     @trainer.on(Events.STARTED)
@@ -210,9 +202,13 @@ def main(args):
         found_better = reduce_lr_scheduler.is_better(engine.state.metrics['running_val_loss'], reduce_lr_scheduler.best)
         reduce_lr_scheduler.step(engine.state.metrics['running_val_loss'])
 
-        to_save = {'config': config,
-                   'encoder': encoder.state_dict(), 'decoder': decoder.state_dict(), 
-                   'optimizer': optimizer.state_dict(), 'lr_scheduler': reduce_lr_scheduler.state_dict()}
+        to_save = {
+            'config': config,
+            'model': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'lr_scheduler': reduce_lr_scheduler.state_dict()
+        }
+
         if found_better:
             torch.save(to_save, os.path.join(CKPT_DIR, 'BEST_weights.pt'))
         filename = 'weights_val_loss_{:.3f}_val_acc_{:.3f}.pt'.format(engine.state.metrics['running_val_loss'],
