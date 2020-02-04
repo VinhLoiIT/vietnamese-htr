@@ -18,7 +18,7 @@ from utils import ScaleImageByHeight
 def main(args):
     config = {
         'batch_size': 32,
-        'scale_height': 64,
+        'scale_height': 128,
         'hidden_size': 256,
         'attn_size': 256,
         'max_length': 10,

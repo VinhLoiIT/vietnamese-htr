@@ -14,7 +14,7 @@ class Decoder(nn.Module):
         self.vocab_size = vocab_size
         self.attn_size = attn_size
 
-        self.rnn = nn.GRU(
+        self.rnn = nn.LSTM(
             input_size=self.vocab_size+self.feature_size,
             hidden_size=self.hidden_size,
         )
@@ -46,13 +46,14 @@ class Decoder(nn.Module):
         targets = targets.float()
         rnn_input = start_input.float() # [1, B, V]
         hidden = self.init_hidden(batch_size).to(img_features.device)
+        cell_state = self.init_hidden(batch_size).to(img_features.device)
 
         outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
         weights = torch.zeros(max_length, batch_size, num_pixels, device=img_features.device) 
 
         for t in range(max_length):
             context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
-            output, hidden = self.rnn(torch.cat((rnn_input, context), -1), hidden)
+            output, (hidden, cell_state) = self.rnn(torch.cat((rnn_input, context), -1), (hidden, cell_state))
             output = self.character_distribution(output)
 
             outputs[[t]] = output
@@ -70,10 +71,11 @@ class Decoder(nn.Module):
         num_pixels = img_features.size(0)
         batch_size = img_features.size(1)
 
-        rnn_input = start_input
+        rnn_input = start_input.float()
 
         hidden = self.init_hidden(batch_size).to(img_features.device)
-
+        cell_state = self.init_hidden(batch_size).to(img_features.device)
+        
         outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
         weights = torch.zeros(max_length, batch_size, num_pixels, device=img_features.device) 
 
@@ -83,7 +85,7 @@ class Decoder(nn.Module):
 
             rnn_input = torch.cat((rnn_input, context), -1)
 
-            output, hidden = self.rnn(rnn_input, hidden)
+            output, (hidden, cell_state) = self.rnn(rnn_input, (hidden, cell_state))
             output = self.character_distribution(output)
 
             outputs[[t]] = output
