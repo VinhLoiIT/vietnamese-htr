@@ -14,8 +14,8 @@ class Transformer(nn.Module):
 
         self.cnn = cnn
 
-        # encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=1)
-        # self.encoder = TransformerEncoder(self.cnn.n_features, encoder_layer)
+        encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=1)
+        self.encoder = TransformerEncoder(self.cnn.n_features, encoder_layer)
 
         decoder_layer = TransformerDecoderLayer(self.cnn.n_features, vocab_size, attn_size, nhead=1)
         self.decoder = TransformerDecoder(attn_size, decoder_layer)
@@ -38,7 +38,7 @@ class Transformer(nn.Module):
         feature_image_h, feature_image_w = image_features.size()[-2:]
         image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
         image_features = image_features.permute(2,0,1) # [S, B, C']
-        # img_features = self.encoder.forward(img_features)
+        # img_features = self.encoder.forward(image_features)
 
         # targets = self.positional_encoding_text(targets.float())
         # targets = self.linear_text(targets)
@@ -141,7 +141,7 @@ class TransformerDecoderLayer(nn.Module):
         # self.dropout = nn.Dropout(dropout)
         # self.linear2 = nn.Linear(dim_feedforward, attn_size)
 
-        # self.norm1 = nn.LayerNorm(attn_size)
+        # self.norm1 = nn.LayerNorm(vocab_size)
         # self.norm2 = nn.LayerNorm(attn_size)
         # self.norm3 = nn.LayerNorm(attn_size)
         # self.dropout1 = nn.Dropout(dropout)
@@ -152,27 +152,27 @@ class TransformerDecoderLayer(nn.Module):
 
     def forward(self, image_features, tgt):
         context_text, weight_text = self.decoder_attn.forward(tgt[[-1]], tgt)
-        # tgt = tgt + self.dropout1(tgt2)
-        # tgt = self.norm1(tgt)
+        # context_text = tgt + self.dropout1(context_text)
+        # context_text = self.norm1(context_text)
 
-        context, weight = self.encoder_decoder_attn.forward(context_text, image_features)
-        # tgt = tgt + self.dropout2(tgt2)
-        # tgt = self.norm2(tgt)
+        context_attn, weight_attn = self.encoder_decoder_attn.forward(context_text, image_features)
+        # context_attn = context_attn + self.dropout2(context_attn)
+        # context_attn = self.norm2(context_attn)
 
         # tgt2 = self.linear2(self.dropout(F.relu(self.linear1(context_img))))
         # tgt = tgt + self.dropout3(tgt2)
         # tgt = self.norm3(tgt)
         # return tgt, weight
 
-        return context, weight
+        return context_attn, weight_attn
 
 class TransformerEncoder(nn.Module):
 
-    def __init__(self, attn_size, encoder_layer, num_layers=1):
+    def __init__(self, feature_size, encoder_layer, num_layers=1):
         super(TransformerEncoder, self).__init__()
         self.layers = _get_clones(encoder_layer, num_layers)
         self.num_layers = num_layers
-        self.norm = nn.LayerNorm(attn_size)
+        self.norm = nn.LayerNorm(feature_size)
 
     def forward(self, img_features):
         output = img_features
@@ -186,20 +186,21 @@ class TransformerEncoder(nn.Module):
 
 
 class TransformerEncoderLayer(nn.Module):
-    def __init__(self, attn_size, nhead, dim_feedforward=2048, dropout=0.1):
+    def __init__(self, feature_size, nhead, dim_feedforward=2048, dropout=0.1):
         super(TransformerEncoderLayer, self).__init__()
-        self.self_attn = nn.modules.MultiheadAttention(attn_size, nhead, dropout=dropout)
+        self.self_attn = nn.modules.MultiheadAttention(feature_size, num_heads=nhead)
         # Implementation of Feedforward model
-        self.linear1 = nn.Linear(attn_size, dim_feedforward)
+        self.linear1 = nn.Linear(feature_size, dim_feedforward)
         self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(dim_feedforward, attn_size)
+        self.linear2 = nn.Linear(dim_feedforward, feature_size)
 
-        self.norm1 = nn.LayerNorm(attn_size)
-        self.norm2 = nn.LayerNorm(attn_size)
+        self.norm1 = nn.LayerNorm(feature_size)
+        self.norm2 = nn.LayerNorm(feature_size)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
-    def forward(self, img_features):
+    def forward(self, img_features, output_weights=False):
+        # context_image, _ = self.self_attn.forward(img_features, img_features)
         img_features2 = self.self_attn(img_features, img_features, img_features)[0]
         img_features = img_features + self.dropout1(img_features2)
         img_features = self.norm1(img_features)
