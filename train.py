@@ -1,5 +1,6 @@
 import argparse
 import os
+import datetime
 
 import torch
 import torch.nn as nn
@@ -11,7 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
 from dataset import get_data_loader, vocab_size
-from model import Seq2Seq, DenseNetFE
+from model import Seq2Seq, Transformer, DenseNetFE
 from utils import ScaleImageByHeight
 
 
@@ -44,7 +45,12 @@ def main(args):
                      config['n_blocks'],
                      config['growth_rate'])
 
-    model = Seq2Seq(cnn, vocab_size, config['hidden_size'], config['attn_size'])
+    if args.model == 'tf':
+        model = Transformer(cnn, vocab_size, config['attn_size'])
+    elif args.model == 's2s':
+        model = Seq2Seq(cnn, vocab_size, config['hidden_size'], config['attn_size'])
+    else:
+        raise ValueError('model should be "tf" or "s2s"')
     model.to(device)
 
     criterion = nn.CrossEntropyLoss().to(device)
@@ -75,13 +81,17 @@ def main(args):
     val_loader = get_data_loader('val', config['batch_size'],
                                  image_transform, args.debug)
 
-    writer = SummaryWriter()
+    log_dir = datetime.datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
+    log_dir += '_' + args.model
+    if args.comment:
+        log_dir += '_' + args.comment
+    if args.debug:
+        log_dir += '_debug'
+    log_dir = os.path.join(args.log_root, log_dir)
+    writer = SummaryWriter(log_dir=log_dir)
     CKPT_DIR = os.path.join(writer.get_logdir(), 'weights')
     if not os.path.exists(CKPT_DIR):
         os.mkdir(CKPT_DIR)
-        
-    # writer.add_graph(encoder, verbose=True)
-    # writer.add_graph(decoder, verbose=True)
 
     def step_train(engine, batch):
         model.train()
@@ -217,9 +227,12 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--debug', dest='debug', action='store_true', default=False)
-    parser.add_argument('--gpu_id', type=int, default=0)
-    parser.add_argument('--log_interval', type=int, default=50)
+    parser.add_argument('model', choices=['tf', 's2s'])
+    parser.add_argument('--comment', type=str)
+    parser.add_argument('--debug', action='store_true', default=False)
+    parser.add_argument('--log-root', type=str, default='./runs')
+    parser.add_argument('--gpu-id', type=int, default=0)
+    parser.add_argument('--log-interval', type=int, default=50)
     parser.add_argument('--resume', type=str)
     args = parser.parse_args()
 
