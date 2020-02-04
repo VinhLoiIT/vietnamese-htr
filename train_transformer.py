@@ -78,7 +78,10 @@ def main(args):
     val_loader = get_data_loader('val', config['batch_size'],
                                  image_transform, args.debug)
 
-    writer = SummaryWriter()
+    comment = '_transformer'
+    if args.debug:
+        comment += '_debug'
+    writer = SummaryWriter(comment=comment)
     CKPT_DIR = os.path.join(writer.get_logdir(), 'weights')
     if not os.path.exists(CKPT_DIR):
         os.mkdir(CKPT_DIR)
@@ -92,20 +95,19 @@ def main(args):
         optimizer.zero_grad()
 
         imgs, targets, targets_onehot, lengths = batch
-        lengths = lengths - 1
 
         imgs = imgs.to(device)
-        targets = targets[1:].to(device) # ignore SOS_CHAR
-        targets_onehot = targets_onehot[1:].to(device)
+        targets = targets.to(device)
+        targets_onehot = targets_onehot.to(device)
+        lengths = lengths - 1
 
         img_features = encoder(imgs)
-        outputs = decoder(img_features, targets_onehot,
-                          targets, lengths, char2int[PAD_CHAR])
+        outputs, _ = decoder(img_features, targets_onehot[1:], targets_onehot[[0]])
 
         packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
             outputs, lengths.squeeze())[0]
         packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
-            targets.squeeze(), lengths.squeeze())[0]
+            targets[1:].squeeze(), lengths.squeeze())[0]
 
         loss = criterion(packed_outputs, packed_targets)
         loss.backward()
@@ -121,18 +123,17 @@ def main(args):
             imgs, targets, targets_onehot, lengths = batch
 
             imgs = imgs.to(device)
-            targets = targets[1:].to(device)
-            targets_onehot = targets_onehot[1:].to(device)
+            targets = targets.to(device)
+            targets_onehot = targets_onehot.to(device)
             lengths = lengths - 1
 
             img_features = encoder(imgs)
-            outputs = decoder(img_features, targets_onehot,
-                              targets, lengths, char2int[PAD_CHAR])
+            outputs, _ = decoder(img_features, targets_onehot[1:], targets_onehot[[0]])
 
             packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
                 outputs, lengths.squeeze())[0]
             packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
-                targets.squeeze(), lengths.squeeze())[0]
+                targets[1:].squeeze(), lengths.squeeze())[0]
 
             return packed_outputs, packed_targets
 
