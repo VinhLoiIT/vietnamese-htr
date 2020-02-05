@@ -14,7 +14,7 @@ class Transformer(nn.Module):
 
         self.cnn = cnn
 
-        encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=1)
+        encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=8)
         self.encoder = TransformerEncoder(self.cnn.n_features, encoder_layer)
 
         decoder_layer = TransformerDecoderLayer(self.cnn.n_features, vocab_size, attn_size, nhead=1)
