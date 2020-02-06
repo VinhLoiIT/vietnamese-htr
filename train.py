@@ -11,7 +11,7 @@ from ignite.metrics import Accuracy, Loss, RunningAverage
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
-from dataset import get_data_loader, vocab_size
+from data import get_data_loader, get_vocab
 from model import Seq2Seq, Transformer, DenseNetFE
 from utils import ScaleImageByHeight
 
@@ -19,8 +19,9 @@ from utils import ScaleImageByHeight
 def main(args):
     config = {
         # Common
+        'dataset': 'vnondb', # Should be one of 'vnondb', 'rimes', 'iam'
         'batch_size': 32,
-        'scale_height': 128,
+        'scale_height': 96,
         'attn_size': 256,
         'max_length': 10,
 
@@ -45,6 +46,8 @@ def main(args):
         'encoder_nlayers': 1,
         'decoder_nlayers': 1,
     }
+    
+    vocab = get_vocab(config['dataset'])
 
     device = f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu'
     print('Device = {}'.format(device))
@@ -59,18 +62,18 @@ def main(args):
                      config['growth_rate'])
 
     if args.model == 'tf':
-        model = Transformer(cnn, vocab_size, config['attn_size'],
+        model = Transformer(cnn, vocab.vocab_size, config['attn_size'],
                             config['encoder_nhead'], config['decoder_nhead'], config['both_nhead'],
                             config['encoder_nlayers'], config['decoder_nlayers'])
     elif args.model == 's2s':
-        model = Seq2Seq(cnn, vocab_size, config['hidden_size'], config['attn_size'])
+        model = Seq2Seq(cnn, vocab.vocab_size, config['hidden_size'], config['attn_size'])
     else:
         raise ValueError('model should be "tf" or "s2s"')
 
     if args.debug_model:
         model.eval()
         dummy_image_input = torch.rand(config['batch_size'], 3, config['scale_height'], config['scale_height'] * 2)
-        dummy_target_input = torch.rand(config['max_length'], config['batch_size'], vocab_size)
+        dummy_target_input = torch.rand(config['max_length'], config['batch_size'], vocab.vocab_size)
         dummy_output_train = model.forward(dummy_image_input, dummy_target_input)
         dummy_output_greedy, _ = model.greedy(dummy_image_input, dummy_target_input[[0]])
         print(dummy_output_train.shape)
@@ -100,11 +103,11 @@ def main(args):
         transforms.ToTensor(),
     ])
 
-    train_loader = get_data_loader('train', config['batch_size'],
-                                   image_transform, args.debug)
+    train_loader = get_data_loader(config['dataset'], 'train', config['batch_size'],
+                                   image_transform, vocab, args.debug)
 
-    val_loader = get_data_loader('val', config['batch_size'],
-                                 image_transform, args.debug)
+    val_loader = get_data_loader(config['dataset'], 'val', config['batch_size'],
+                                 image_transform, vocab, args.debug)
 
     log_dir = datetime.datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
     log_dir += '_' + args.model
