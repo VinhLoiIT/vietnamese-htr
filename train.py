@@ -18,24 +18,37 @@ from utils import ScaleImageByHeight
 
 def main(args):
     config = {
+        # Common
         'batch_size': 32,
         'scale_height': 128,
-        'hidden_size': 256,
         'attn_size': 256,
         'max_length': 10,
+
         'n_epochs_decrease_lr': 15,
         'start_learning_rate': 1e-5,  # NOTE: paper start with 1e-8
         'end_learning_rate': 1e-11,
+        'max_epochs': 50,
+        'weight_decay': 0,
+
+        # Densenet only
         'depth': 4,
         'n_blocks': 3,
         'growth_rate': 96,
-        'max_epochs': 50,
-        'weight_decay': 0,
+
+        # Seq2Seq only
+        'hidden_size': 256,
+
+        # Transformer only
+        'encoder_nhead': 8, # should divisible by CNN.n_features
+        'decoder_nhead': 10, # should divisible by vocab_size
+        'both_nhead': 8, # should divisible by attn_size
+        'encoder_nlayers': 1,
+        'decoder_nlayers': 1,
     }
 
     device = f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu'
     print('Device = {}'.format(device))
-    
+
     if args.resume:
         print('Resuming from {}'.format(args.resume))
         checkpoint = torch.load(args.resume, map_location=device)
@@ -46,15 +59,27 @@ def main(args):
                      config['growth_rate'])
 
     if args.model == 'tf':
-        model = Transformer(cnn, vocab_size, config['attn_size'])
+        model = Transformer(cnn, vocab_size, config['attn_size'],
+                            config['encoder_nhead'], config['decoder_nhead'], config['both_nhead'],
+                            config['encoder_nlayers'], config['decoder_nlayers'])
     elif args.model == 's2s':
         model = Seq2Seq(cnn, vocab_size, config['hidden_size'], config['attn_size'])
     else:
         raise ValueError('model should be "tf" or "s2s"')
+
+    if args.debug_model:
+        model.eval()
+        dummy_image_input = torch.rand(config['batch_size'], 3, config['scale_height'], config['scale_height'] * 2)
+        dummy_target_input = torch.rand(config['max_length'], config['batch_size'], vocab_size)
+        dummy_output_train = model.forward(dummy_image_input, dummy_target_input)
+        dummy_output_greedy, _ = model.greedy(dummy_image_input, dummy_target_input[[0]])
+        print(dummy_output_train.shape)
+        print(dummy_output_greedy.shape)
+        print('Ok')
+        exit(0)
+
     model.to(device)
-
     criterion = nn.CrossEntropyLoss().to(device)
-
     optimizer = optim.RMSprop(model.parameters(),
                               lr=config['start_learning_rate'],
                               weight_decay=config['weight_decay'])
@@ -63,7 +88,7 @@ def main(args):
         patience=config['n_epochs_decrease_lr'],
         min_lr=config['end_learning_rate'],
         verbose=True)
-    
+
     if args.resume:
         model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
@@ -103,7 +128,7 @@ def main(args):
         targets = targets.to(device)
         targets_onehot = targets_onehot.to(device)
 
-        outputs, _ = model.forward(imgs, targets_onehot, output_weight=False)
+        outputs = model.forward(imgs, targets_onehot)
 
         packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
             outputs, (lengths - 1).squeeze())[0]
@@ -126,7 +151,7 @@ def main(args):
             targets = targets.to(device)
             targets_onehot = targets_onehot.to(device)
 
-            outputs, _ = model.forward(imgs, targets_onehot, output_weight=False)
+            outputs = model.forward(imgs, targets_onehot)
 
             packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
                 outputs, (lengths - 1).squeeze())[0]
@@ -223,6 +248,13 @@ def main(args):
         torch.save(to_save, os.path.join(CKPT_DIR, filename))
 
     trainer.run(train_loader, max_epochs=2 if args.debug else config['max_epochs'])
+    
+    writer.add_hparams(config, {
+        'hparam/val_acc': evaluator.state.metrics['running_val_acc'],
+        'hparam/val_loss': evaluator.state.metrics['running_val_loss'],
+        'hparam/training_time': training_timer.value(),
+    })
+    
     writer.close()
 
 if __name__ == '__main__':
@@ -230,6 +262,7 @@ if __name__ == '__main__':
     parser.add_argument('model', choices=['tf', 's2s'])
     parser.add_argument('--comment', type=str)
     parser.add_argument('--debug', action='store_true', default=False)
+    parser.add_argument('--debug-model', action='store_true', default=False)
     parser.add_argument('--log-root', type=str, default='./runs')
     parser.add_argument('--gpu-id', type=int, default=0)
     parser.add_argument('--log-interval', type=int, default=50)

@@ -9,83 +9,102 @@ from .attention import Attention, MultiHeadAttention
 
 
 class Transformer(nn.Module):
-    def __init__(self, cnn, vocab_size, attn_size):
+    def __init__(self, cnn, vocab_size, attn_size, encoder_nhead, decoder_nhead, both_nhead, encoder_nlayers=1, decoder_nlayers=1):
         super().__init__()
 
         self.cnn = cnn
+        self.vocab_size = vocab_size
 
-        encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=8)
-        self.encoder = TransformerEncoder(self.cnn.n_features, encoder_layer, num_layers=1)
+        encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=encoder_nhead)
+        self.encoder = TransformerEncoder(encoder_layer, num_layers=encoder_nlayers)
 
-        decoder_layer = TransformerDecoderLayer(self.cnn.n_features, vocab_size, attn_size, nhead=1)
-        self.decoder = TransformerDecoder(attn_size, decoder_layer)
-        
-        self.character_distribution = nn.Linear(self.cnn.n_features, vocab_size)
-        
-        # self.positional_encoding_text = PositionalEncoding(vocab_size)
-    
-    def forward(self, images, targets, teacher_forcing_ratio=0.5, output_weight=False):
+        decoder_layer = TransformerDecoderLayer(self.cnn.n_features, vocab_size, attn_size, nhead=decoder_nhead)
+        self.decoder = TransformerDecoder(attn_size, decoder_layer, num_layers=decoder_nlayers)
+
+        self.character_distribution = nn.Linear(attn_size, vocab_size)
+
+    def forward(self, images, targets, teacher_forcing_ratio=0.5):
         '''
+        Inputs:
         :param images: [B,C,H,W]
-        :param targets: [L,B,V]
-        return
-        - outputs: [L,B,V]
-        - weights
+        :param targets: Tensor of [L,B,V], which should start with <start> and end with <end>
+        Return:
+            - outputs: [L,B,V]
         '''
-        max_length = targets.size(0)
+        max_length = targets.size(0) - 1 # ignore <start>
         batch_size, _, input_image_h, input_image_w = images.size()
+
+        # Step 1: CNN Feature Extraction
         image_features = self.cnn(images) # [B, C', H', W']
         feature_image_h, feature_image_w = image_features.size()[-2:]
         image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
         image_features = image_features.permute(2,0,1) # [S, B, C']
-        # img_features = self.encoder.forward(image_features)
 
-        # targets = self.positional_encoding_text(targets.float())
-        # targets = self.linear_text(targets)
+        # Step 2: Encoder forwarding
+        image_features, _ = self.encoder.forward(image_features, output_weights=False)
 
+        # Step 3: Decoder forwarding
         targets = targets.float()
-        outputs = targets[[0]]
+        # predicts = torch.zeros(max_length, batch_size, self.vocab_size, dtype=torch.float32, device=targets.device)
+        # predicts[[0]] = targets[[0]]
+        predicts = targets[[0]]
         targets = targets[1:]
-        
-        for t in range(0, max_length):
-            # transformer_input = self.positional_encoding_text(outputs)
-            # transformer_input = self.linear_text(transformer_input)
-            output, weights = self.decoder.forward(outputs, image_features,
-                                                   output_weight=output_weight)
+
+        for t in range(max_length):
+            output, _ = self.decoder.forward(predicts, image_features)
             output = self.character_distribution(output)
-            
+
             # teacher_force = random.random() < teacher_forcing_ratio
             # if self.training and teacher_force:
             #     rnn_input = targets[[t]]
             # else:
             #     rnn_input = output
 
-            outputs = torch.cat([outputs, output], dim=0)
+            predicts = torch.cat([predicts, output], dim=0)
 
-        return outputs[1:], weights
-        
-    def inference(self, img_features, start_input, output_weight=False, max_length=10):
-        img_features = self.linear_img(img_features)
-        img_features = self.encoder.forward(img_features)
-        # Optional: PositionEncoding for imgs
-        # here ...
-        
-        outputs = start_input
-        
-        for t in range(1, max_length):
-            transformer_input = self.positional_encoding_text(outputs)
-            transformer_input = self.linear_text(transformer_input)
-            tgt_mask = nn.modules.Transformer.generate_square_subsequent_mask(None, t).to(start_input.device) # ignore SOS_CHAR
-            output, weights = self.decoder.forward(transformer_input, img_features,
-                                                   output_weight=output_weight)
-            output = self.linear_output(output[[-1]])
+        return predicts
+
+    def greedy(self, images, start_input, output_weight=False, max_length=10):
+        '''
+        Inputs:
+        :param images: [B,C,H,W]
+        :param targets: Tensor of [L,B,V], which should start with <start> and end with <end>
+        Return:
+            - outputs: [L,B,V]
+            - weights: None #TODO: not implement yet
+        '''
+        batch_size, _, input_image_h, input_image_w = images.size()
+
+        # Step 1: CNN Feature Extraction
+        image_features = self.cnn(images) # [B, C', H', W']
+        feature_image_h, feature_image_w = image_features.size()[-2:]
+        image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
+        image_features = image_features.permute(2,0,1) # [S, B, C']
+
+        # Step 2: Encoder forwarding
+        image_features, _ = self.encoder.forward(image_features, output_weights=False)
+
+        # Step 3: Decoder forwarding
+        predicts = torch.zeros(max_length, batch_size, self.vocab_size, dtype=torch.float32, device=start_input.device)
+        predicts[[0]] = start_input
+        weights = []
+
+        for t in range(max_length):
+            output, weight = self.decoder.forward(predicts, image_features)
+            output = self.character_distribution(output)
             output = F.softmax(output, -1)
             _, index = output.topk(1, -1)
-            predict = torch.zeros(1, 1, self.vocab_size).to(img_features.device)
-            predict[:,:,index] = 1
-            outputs = torch.cat([outputs, predict], dim=0)
+            predicts[[t],:,index] = 1
 
-        return outputs, weights
+            weights.append(weight)
+
+            # teacher_force = random.random() < teacher_forcing_ratio
+            # if self.training and teacher_force:
+            #     rnn_input = targets[[t]]
+            # else:
+            #     rnn_input = output
+
+        return predicts, weights
 
 class PositionalEncoding(nn.Module):
 
@@ -130,8 +149,8 @@ class TransformerDecoderLayer(nn.Module):
     def __init__(self, cnn_features, vocab_size, attn_size, nhead, dim_feedforward=2048, dropout=0.1):
         super(TransformerDecoderLayer, self).__init__()
 
-        self.decoder_attn = Attention(vocab_size, vocab_size, vocab_size)
-        self.encoder_decoder_attn = Attention(cnn_features, vocab_size, attn_size)
+        self.self_attn = MultiHeadAttention(vocab_size, vocab_size, vocab_size)
+        self.encoder_decoder_attn = MultiHeadAttention(cnn_features, vocab_size, attn_size)
 
         # self.self_attn = nn.modules.MultiheadAttention(attn_size, nhead, dropout=dropout)
         # self.multihead_attn = nn.modules.MultiheadAttention(attn_size, nhead, dropout=dropout)
@@ -147,11 +166,11 @@ class TransformerDecoderLayer(nn.Module):
         # self.dropout1 = nn.Dropout(dropout)
         # self.dropout2 = nn.Dropout(dropout)
         # self.dropout3 = nn.Dropout(dropout)
-        
+
         self.attn_size = attn_size
 
-    def forward(self, image_features, tgt):
-        context_text, weight_text = self.decoder_attn.forward(tgt[[-1]], tgt)
+    def forward(self, image_features, tgt, output_weights=False):
+        context_text, weight_text = self.self_attn.forward(tgt[[-1]], tgt)
         # context_text = tgt + self.dropout1(context_text)
         # context_text = self.norm1(context_text)
 
@@ -164,51 +183,60 @@ class TransformerDecoderLayer(nn.Module):
         # tgt = self.norm3(tgt)
         # return tgt, weight
 
-        return context_attn, weight_attn
+        if output_weights:
+            return context_attn, (weight_text, weight_attn)
+        else:
+            return context_attn, None
 
 class TransformerEncoder(nn.Module):
 
-    def __init__(self, feature_size, encoder_layer, num_layers=1):
+    def __init__(self, encoder_layer, num_layers=1):
         super(TransformerEncoder, self).__init__()
         self.layers = _get_clones(encoder_layer, num_layers)
         self.num_layers = num_layers
-        self.norm = nn.LayerNorm(feature_size)
+        # self.norm = nn.LayerNorm(encoder_layer.feature_size)
 
-    def forward(self, img_features):
+    def forward(self, img_features, output_weights=False):
         output = img_features
 
+        weights = []
         for i in range(self.num_layers):
-            output = self.layers[i](output)
+            output, weight = self.layers[i](output, output_weights)
+            weights.append(weights)
 
-        output = self.norm(output)
+        # output = self.norm(output)
 
-        return output
-
+        if output_weights:
+            return output, weights
+        else:
+            return output, None
 
 class TransformerEncoderLayer(nn.Module):
     def __init__(self, feature_size, nhead, dim_feedforward=2048, dropout=0.1):
         super(TransformerEncoderLayer, self).__init__()
-        # self.self_attn = nn.modules.MultiheadAttention(feature_size, num_heads=nhead)
+        self.feature_size = feature_size
         self.self_attn = MultiHeadAttention(feature_size, feature_size, feature_size, nhead=nhead)
         # Implementation of Feedforward model
-        self.linear1 = nn.Linear(feature_size, dim_feedforward)
-        self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(dim_feedforward, feature_size)
+        # self.linear1 = nn.Linear(feature_size, dim_feedforward)
+        # self.dropout = nn.Dropout(dropout)
+        # self.linear2 = nn.Linear(dim_feedforward, feature_size)
 
-        self.norm1 = nn.LayerNorm(feature_size)
-        self.norm2 = nn.LayerNorm(feature_size)
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
+        # self.norm1 = nn.LayerNorm(feature_size)
+        # self.norm2 = nn.LayerNorm(feature_size)
+        # self.dropout1 = nn.Dropout(dropout)
+        # self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, img_features, output_weights=False):
-        # context_image, _ = self.self_attn.forward(img_features, img_features)
-        img_features2 = self.self_attn(img_features, img_features, img_features)[0]
-        img_features = img_features + self.dropout1(img_features2)
-        img_features = self.norm1(img_features)
-        img_features2 = self.linear2(self.dropout(F.relu(self.linear1(img_features))))
-        img_features = img_features + self.dropout2(img_features2)
-        img_features = self.norm2(img_features)
-        return img_features
+        img_features, weight = self.self_attn(img_features, img_features)
+        # img_features = img_features + self.dropout1(img_features2)
+        # img_features = self.norm1(img_features)
+        # img_features2 = self.linear2(self.dropout(F.relu(self.linear1(img_features))))
+        # img_features = img_features + self.dropout2(img_features2)
+        # img_features = self.norm2(img_features)
+        if output_weights:
+            return img_features, weight
+        else:
+            return img_features, None
 
 
 
