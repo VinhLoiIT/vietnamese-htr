@@ -5,7 +5,7 @@ import copy
 import math
 import random
 
-from .attention import Attention
+from .attention import Attention, MultiHeadAttention
 
 
 class Transformer(nn.Module):
@@ -15,7 +15,7 @@ class Transformer(nn.Module):
         self.cnn = cnn
 
         encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=8)
-        self.encoder = TransformerEncoder(self.cnn.n_features, encoder_layer, num_layers=6)
+        self.encoder = TransformerEncoder(self.cnn.n_features, encoder_layer, num_layers=1)
 
         decoder_layer = TransformerDecoderLayer(self.cnn.n_features, vocab_size, attn_size, nhead=1)
         self.decoder = TransformerDecoder(attn_size, decoder_layer)
@@ -188,7 +188,8 @@ class TransformerEncoder(nn.Module):
 class TransformerEncoderLayer(nn.Module):
     def __init__(self, feature_size, nhead, dim_feedforward=2048, dropout=0.1):
         super(TransformerEncoderLayer, self).__init__()
-        self.self_attn = nn.modules.MultiheadAttention(feature_size, num_heads=nhead)
+        # self.self_attn = nn.modules.MultiheadAttention(feature_size, num_heads=nhead)
+        self.self_attn = MultiHeadAttention(feature_size, feature_size, feature_size, nhead=nhead)
         # Implementation of Feedforward model
         self.linear1 = nn.Linear(feature_size, dim_feedforward)
         self.dropout = nn.Dropout(dropout)
