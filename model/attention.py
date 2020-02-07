@@ -54,18 +54,21 @@ class MultiHeadAttention(nn.Module):
         encoder_outputs = encoder_outputs.view(*encoder_outputs.shape[:-1], self.nhead, self.head_attn_size)
         last_hidden = last_hidden.view(*last_hidden.shape[:-1], self.nhead, self.head_attn_size)
 
-        contexts = []
-        weights = []
-        for t in range(len(last_hidden)):
-            context, weight = self.attn(last_hidden[[t]], encoder_outputs)
-            # weight: [num_pixels, B, nhead, 1]
-            # context: [1, B, nhead, A]
-            contexts.append(context)
-            weights.append(weight.transpose(0, 2))
+        # contexts = []
+        # weights = []
+        # for t in range(len(last_hidden)):
+        #     context, weight = self.attn(last_hidden[[t]], encoder_outputs)
+        #     # weight: [num_pixels, B, nhead, 1]
+        #     # context: [1, B, nhead, A]
+        #     contexts.append(context)
+        #     weights.append(weight.transpose(0, 2))
+        # context = torch.cat(contexts, dim=0)
+        # weight = torch.cat(weights, dim=0)
+        
+        context, weight = self.attn(last_hidden, encoder_outputs)
+        # weight: [num_pixels, B, nhead, 1]
+        # context: [1, B, nhead, A]
 
-        context = torch.cat(contexts, dim=0)
-        weight = torch.cat(weights, dim=0)
-
-        weight = torch.mean(weight, dim=-1, keepdim=True) # weight: [num_pixels, B, 1]
+        weight = torch.mean(weight, dim=-2, keepdim=False) # weight: [num_pixels, B, 1]
         context = context.view(context.shape[0], context.shape[1], -1) # context: [1, B, nhead x head_attn_size] = [1, B, A]
         return context, weight
