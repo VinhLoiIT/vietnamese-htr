@@ -15,8 +15,8 @@ class Transformer(nn.Module):
         self.cnn = cnn
         self.vocab_size = vocab_size
 
-        encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=encoder_nhead)
-        self.encoder = TransformerEncoder(encoder_layer, num_layers=encoder_nlayers)
+        # encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=encoder_nhead)
+        # self.encoder = TransformerEncoder(encoder_layer, num_layers=encoder_nlayers)
 
         decoder_layer = TransformerDecoderLayer(self.cnn.n_features, vocab_size, attn_size, nhead=decoder_nhead)
         self.decoder = TransformerDecoder(attn_size, decoder_layer, num_layers=decoder_nlayers)
@@ -41,7 +41,7 @@ class Transformer(nn.Module):
         image_features = image_features.permute(2,0,1) # [S, B, C']
 
         # Step 2: Encoder forwarding
-        image_features, _ = self.encoder.forward(image_features, output_weights=False)
+        # image_features, _ = self.encoder.forward(image_features, output_weights=False)
 
         # Step 3: Decoder forwarding
         targets = targets.float()
@@ -82,7 +82,7 @@ class Transformer(nn.Module):
         image_features = image_features.permute(2,0,1) # [S, B, C']
 
         # Step 2: Encoder forwarding
-        image_features, _ = self.encoder.forward(image_features, output_weights=False)
+        # image_features, _ = self.encoder.forward(image_features, output_weights=False)
 
         # Step 3: Decoder forwarding
         predicts = torch.zeros(max_length, batch_size, self.vocab_size, dtype=torch.float32, device=start_input.device)
