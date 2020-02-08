@@ -20,6 +20,8 @@ def main(args):
     config = {
         # Common
         'dataset': 'vnondb', # Should be one of 'vnondb', 'rimes', 'iam'
+        'cnn': 'densenet', # maybe other CNN # TODO: future implement CNN
+        'optimizer': 'RMSprop', # Should be one of 'adam', 'RMSprop'
         'batch_size': 32,
         'scale_height': 96,
         'attn_size': 256,
@@ -57,10 +59,12 @@ def main(args):
         checkpoint = torch.load(args.resume, map_location=device)
         config = checkpoint['config']
 
-    cnn = DenseNetFE(config['depth'],
-                     config['n_blocks'],
-                     config['growth_rate'])
-
+    if config['cnn'] == 'densenet':
+        cnn = DenseNetFE(config['depth'],
+                        config['n_blocks'],
+                        config['growth_rate'])
+    else:
+        raise ValueError('Unknow CNN {}'.format(config['cnn']))
     if args.model == 'tf':
         model = Transformer(cnn, vocab.vocab_size, config['attn_size'],
                             config['encoder_nhead'], config['decoder_nhead'], config['both_nhead'],
@@ -83,9 +87,16 @@ def main(args):
 
     model.to(device)
     criterion = nn.CrossEntropyLoss().to(device)
-    optimizer = optim.RMSprop(model.parameters(),
-                              lr=config['start_learning_rate'],
-                              weight_decay=config['weight_decay'])
+    if config['optimizer'] == 'RMSprop':
+        optimizer = optim.RMSprop(model.parameters(),
+                                  lr=config['start_learning_rate'],
+                                  weight_decay=config['weight_decay'])
+    elif config['optimizer'] == 'adam':
+        optimizer = optim.Adam(model.parameters(),
+                               lr=config['start_learning_rate'],
+                               weight_decay=config['weight_decay'])
+    else:
+        raise ValueError('Unknow optimizer {}'.format(config['optimizer']))
     reduce_lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 'min',
         patience=config['n_epochs_decrease_lr'],
@@ -134,7 +145,7 @@ def main(args):
         outputs = model.forward(imgs, targets_onehot)
 
         packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
-            outputs, (lengths - 1).squeeze())[0]
+            outputs[1:], (lengths - 1).squeeze())[0]
         packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
             targets[1:].squeeze(), (lengths - 1).squeeze())[0]
 
@@ -157,7 +168,7 @@ def main(args):
             outputs = model.forward(imgs, targets_onehot)
 
             packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
-                outputs, (lengths - 1).squeeze())[0]
+                outputs[1:], (lengths - 1).squeeze())[0]
             packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
                 targets[1:].squeeze(), (lengths - 1).squeeze())[0]
 
