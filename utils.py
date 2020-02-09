@@ -1,7 +1,9 @@
 import os
 import torch
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
+from skimage.feature import hog
+from skimage import exposure
 
 class ScaleImageByHeight(object):
     def __init__(self, target_height):
@@ -14,6 +16,21 @@ class ScaleImageByHeight(object):
         new_height = int(height * factor)
         image = image.resize((new_width, new_height))
         return image
+    
+class HandcraftFeature(object):
+    def __init__(self, orientations=8):
+        self.orientations = orientations
+    
+    def __call__(self, image):
+        image_width, image_height = image.size
+        handcraft_img = np.ndarray((image_height, image_width, 3))
+        handcraft_img[:, :, 0] = np.array(image.convert('L'))
+        handcraft_img[:, :, 1] = np.array(image.filter(ImageFilter.FIND_EDGES).convert('L'))
+        _, hog_image = hog(image, orientations=self.orientations, visualize=True)
+        hog_image_rescaled = exposure.rescale_intensity(hog_image, in_range=(0, 10))
+        handcraft_img[:, :, 2] = np.array(hog_image_rescaled)
+        #handcraft_img = Image.fromarray(np.uint8(handcraft_img))
+        return handcraft_img
     
 class PaddingWidth(object):
     '''
