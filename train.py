@@ -13,7 +13,7 @@ from torchvision import transforms
 
 from dataset import get_data_loader, vocab_size
 from model import Seq2Seq, Transformer, DenseNetFE
-from utils import ScaleImageByHeight
+from utils import ScaleImageByHeight, HandcraftFeature
 
 
 def main(args):
@@ -70,8 +70,8 @@ def main(args):
         reduce_lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
 
     image_transform = transforms.Compose([
-        transforms.Grayscale(3),
         ScaleImageByHeight(config['scale_height']),
+        HandcraftFeature(),
         transforms.ToTensor(),
     ])
 
