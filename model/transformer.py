@@ -48,18 +48,13 @@ class Transformer(nn.Module):
         # predicts = torch.zeros(max_length, batch_size, self.vocab_size, dtype=torch.float32, device=targets.device)
         # predicts[[0]] = targets[[0]]
         predicts = targets[[0]]
-        targets = targets[1:]
 
         for t in range(max_length):
-            output, _ = self.decoder.forward(predicts, image_features)
+            # output, _ = self.decoder.forward(predicts, image_features)
+            # output = self.character_distribution(output)
+            # predicts = torch.cat([predicts, output], dim=0)
+            output, _ = self.decoder.forward(targets[:t+1], image_features)
             output = self.character_distribution(output)
-
-            # teacher_force = random.random() < teacher_forcing_ratio
-            # if self.training and teacher_force:
-            #     rnn_input = targets[[t]]
-            # else:
-            #     rnn_input = output
-
             predicts = torch.cat([predicts, output], dim=0)
 
         return predicts
@@ -68,7 +63,7 @@ class Transformer(nn.Module):
         '''
         Inputs:
         :param images: [B,C,H,W]
-        :param targets: Tensor of [L,B,V], which should start with <start> and end with <end>
+        :param start_input: Tensor of [L,B,V], which should start with <start> and end with <end>
         Return:
             - outputs: [L,B,V]
             - weights: None #TODO: not implement yet
@@ -85,24 +80,17 @@ class Transformer(nn.Module):
         image_features, _ = self.encoder.forward(image_features, output_weights=False)
 
         # Step 3: Decoder forwarding
-        predicts = torch.zeros(max_length, batch_size, self.vocab_size, dtype=torch.float32, device=start_input.device)
-        predicts[[0]] = start_input
+        predicts = start_input.float()
         weights = []
-
         for t in range(max_length):
             output, weight = self.decoder.forward(predicts, image_features)
             output = self.character_distribution(output)
             output = F.softmax(output, -1)
-            _, index = output.topk(1, -1)
-            predicts[[t],:,index] = 1
-
+            index = output.topk(1, -1)[1]
+            output = torch.zeros_like(output)
+            output.scatter_(-1, index, 1)
+            predicts = torch.cat([predicts, output], dim=0)
             weights.append(weight)
-
-            # teacher_force = random.random() < teacher_forcing_ratio
-            # if self.training and teacher_force:
-            #     rnn_input = targets[[t]]
-            # else:
-            #     rnn_input = output
 
         return predicts, weights
 

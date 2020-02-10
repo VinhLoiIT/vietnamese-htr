@@ -109,8 +109,9 @@ def main(args):
         reduce_lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
 
     image_transform = transforms.Compose([
+        transforms.Grayscale(3),
         ScaleImageByHeight(config['scale_height']),
-        HandcraftFeature(),
+        # HandcraftFeature(),
         transforms.ToTensor(),
     ])
 

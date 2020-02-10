@@ -1,5 +1,5 @@
 import numpy as np
-from .dataset import VNOnDB, RIMES, Vocab
+from .dataset import *
 from torch.utils.data import DataLoader, SubsetRandomSampler
 
 def _get_dataset_partition_helper(dataset, partition, transform):
