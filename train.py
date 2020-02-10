@@ -42,9 +42,9 @@ def main(args):
         'hidden_size': 256,
 
         # Transformer only
-        'encoder_nhead': 8, # should divisible by CNN.n_features
-        'decoder_nhead': 10, # should divisible by vocab_size
-        'both_nhead': 8, # should divisible by attn_size
+        'encoder_nhead': 1, # should divisible by CNN.n_features
+        'decoder_nhead': 1, # should divisible by vocab_size
+        'both_nhead': 1, # should divisible by attn_size
         'encoder_nlayers': 1,
         'decoder_nlayers': 1,
     }
