@@ -26,7 +26,7 @@ class Seq2Seq(nn.Module):
         image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
         image_features = image_features.permute(2,0,1) # [S, B, C']
 
-        predicts, _ = self.decoder.forward(image_features, target[1:], target[[0]])
+        predicts, _ = self.decoder(image_features, target)
         return predicts
 
     def greedy(self, image, start_input, max_length=10, output_weight=False):

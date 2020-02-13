@@ -21,7 +21,7 @@ def inference(model, batch, vocab, device):
 
     outputs, _ = model.greedy(imgs, targets_onehot[[0]])
 
-    index = outputs[1:].topk(1, -1)[1] # ignore <start>
+    index = outputs.topk(1, -1)[1] # ignore <start>
     predicts = index.squeeze().transpose(0, 1) # [B, T]
     predicts_str = []
     for predict in predicts:

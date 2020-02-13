@@ -84,7 +84,7 @@ def main(args):
 
     if torch.cuda.device_count() > 1 and args.multi_gpus:
         logger.info("Let's use %d GPUs!", torch.cuda.device_count())
-        model = nn.DataParallel(model)
+        model = nn.DataParallel(model, dim=1) # batch dim = 1
 
     if args.debug_model:
         logger = logging.getLogger(__name__)
@@ -92,7 +92,7 @@ def main(args):
         model.eval()
         dummy_image_input = torch.rand(config['batch_size'], 3, config['scale_height'], config['scale_height'] * 2)
         dummy_target_input = torch.rand(config['max_length'], config['batch_size'], vocab.vocab_size)
-        dummy_output_train = model.forward(dummy_image_input, dummy_target_input)
+        dummy_output_train = model(dummy_image_input, dummy_target_input)
         dummy_output_greedy, _ = model.greedy(dummy_image_input, dummy_target_input[[0]])
         logger.debug(dummy_output_train.shape)
         logger.debug(dummy_output_greedy.shape)
@@ -100,7 +100,7 @@ def main(args):
         exit(0)
 
     model.to(device)
-    criterion = nn.CrossEntropyLoss().to(device)
+    criterion = nn.CrossEntropyLoss(ignore_index=vocab.char2int[PAD_CHAR]).to(device)
     if config['optimizer'] == 'RMSprop':
         optimizer = optim.RMSprop(model.parameters(),
                                   lr=config['start_learning_rate'],
@@ -157,18 +157,16 @@ def main(args):
         targets = targets.to(device)
         targets_onehot = targets_onehot.to(device)
 
-        outputs = model.forward(imgs, targets_onehot)
+        outputs = model(imgs, targets_onehot[:-1])
 
-        packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
-            outputs, (lengths - 1).squeeze())[0]
-        packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
-            targets[1:].squeeze(), (lengths - 1).squeeze())[0]
+        outputs = outputs.view(-1, vocab.vocab_size)
+        targets = targets[1:].view(-1)
 
-        loss = criterion(packed_outputs, packed_targets)
+        loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
 
-        return packed_outputs, packed_targets
+        return outputs, targets
 
     def step_val(engine, batch):
         model.eval()
@@ -180,14 +178,12 @@ def main(args):
             targets = targets.to(device)
             targets_onehot = targets_onehot.to(device)
 
-            outputs = model.forward(imgs, targets_onehot)
+            outputs = model(imgs, targets_onehot[:-1])
 
-            packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
-                outputs, (lengths - 1).squeeze())[0]
-            packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
-                targets[1:].squeeze(), (lengths - 1).squeeze())[0]
+            outputs = outputs.view(-1, vocab.vocab_size)
+            targets = targets[1:].view(-1)
 
-            return packed_outputs, packed_targets
+            return outputs, targets
 
     trainer = Engine(step_train)
     evaluator = Engine(step_val)

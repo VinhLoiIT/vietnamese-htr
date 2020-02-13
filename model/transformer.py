@@ -50,16 +50,15 @@ class Transformer(nn.Module):
 
         # Step 2: Encoder forwarding
         if self.encoder is not None:
-            image_features, _ = self.encoder.forward(image_features, output_weights=False)
+            image_features, _ = self.encoder(image_features, output_weights=False)
 
         # Step 3: Decoder forwarding
-        targets = targets.float() # output shifted right
+        targets = targets.float()
         attn_mask = self.generate_subsquence_mask(batch_size, max_length).to(targets.device)
-        output, _ = self.decoder.forward(image_features, targets, attn_mask)
+        output, _ = self.decoder(image_features, targets, attn_mask)
         output = self.character_distribution(output)
 
-        return output[1:]
-    
+        return output
         # predicts = targets[[0]]
         # for t in range(max_length):
         #     output, _ = self.decoder.forward(image_features, targets[:t+1])
@@ -87,14 +86,16 @@ class Transformer(nn.Module):
 
         # Step 2: Encoder forwarding
         if self.encoder is not None:
-            image_features, _ = self.encoder.forward(image_features, output_weights=False)
+            image_features, _ = self.encoder(image_features, output_weights=False)
 
+        import pdb
+        pdb.set_trace()
         # Step 3: Decoder forwarding
         predicts = start_input.float()
         weights = []
         for t in range(max_length):
             attn_mask = self.generate_subsquence_mask(batch_size, len(predicts)).to(start_input.device)
-            output, weight = self.decoder.forward(image_features, predicts, attn_mask)
+            output, weight = self.decoder(image_features, predicts, attn_mask)
             output = self.character_distribution(output[[-1]])
             output = F.softmax(output, -1)
             index = output.topk(1, -1)[1]
@@ -167,12 +168,12 @@ class TransformerDecoderLayer(nn.Module):
         self.attn_size = attn_size
 
     def forward(self, image_features, tgt, attn_mask=None, output_weights=False):
-        tgt2, weight_text = self.self_attn.forward(tgt, tgt, attn_mask)
-        # context_text, weight_text = self.self_attn.forward(tgt, tgt[[-1]], attn_mask)
+        tgt2, weight_text = self.self_attn(tgt, tgt, attn_mask)
+        # context_text, weight_text = self.self_attn(tgt, tgt[[-1]], attn_mask)
         # tgt = tgt + self.dropout1(tgt2)
         # tgt = self.norm1(tgt)
 
-        tgt2, weight_attn = self.encoder_decoder_attn.forward(image_features, tgt2)
+        tgt2, weight_attn = self.encoder_decoder_attn(image_features, tgt2)
         # tgt = tgt + self.dropout2(tgt2)
         # tgt = self.norm2(tgt)
 
