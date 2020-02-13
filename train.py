@@ -11,17 +11,18 @@ from ignite.metrics import Accuracy, Loss, RunningAverage
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
-from data import get_data_loader, get_vocab
+from data import get_data_loader, get_vocab, PAD_CHAR
 from model import Seq2Seq, Transformer, DenseNetFE
 from utils import ScaleImageByHeight, HandcraftFeature
 
+import logging
 
 def main(args):
     config = {
         # Common
         'dataset': 'vnondb', # Should be one of 'vnondb', 'rimes', 'iam'
         'cnn': 'densenet', # maybe other CNN # TODO: future implement CNN
-        'optimizer': 'RMSprop', # Should be one of 'adam', 'RMSprop'
+        'optimizer': 'adam', # Should be one of 'adam', 'RMSprop'
         'batch_size': 32,
         'scale_height': 96,
         'attn_size': 256,
@@ -42,20 +43,29 @@ def main(args):
         'hidden_size': 256,
 
         # Transformer only
-        'encoder_nhead': 1, # should divisible by CNN.n_features
-        'decoder_nhead': 1, # should divisible by vocab_size
-        'both_nhead': 1, # should divisible by attn_size
+        'use_encoder': True,
+        'encoder_attn': 'scale_dot_product',
+        # 'encoder_attn': 'additive',
+        'decoder_attn': 'additive',
+        'encoder_decoder_attn': 'additive',
+        # 'encoder_decoder_attn': 'scale_dot_product',
+        'encoder_nhead': 8, # should divisible by CNN.n_features
+        'decoder_nhead': 10, # should divisible by vocab_size
+        'encoder_decoder_nhead': 8, # should divisible by attn_size
         'encoder_nlayers': 1,
         'decoder_nlayers': 1,
     }
     
+    best_metrics = dict()
+    
     vocab = get_vocab(config['dataset'])
+    logger = logging.getLogger('MainTraining')
 
     device = f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu'
-    print('Device = {}'.format(device))
+    logger.info('Device = {}'.format(device))
 
     if args.resume:
-        print('Resuming from {}'.format(args.resume))
+        logger.info('Resuming from {}'.format(args.resume))
         checkpoint = torch.load(args.resume, map_location=device)
         config = checkpoint['config']
 
@@ -66,23 +76,27 @@ def main(args):
     else:
         raise ValueError('Unknow CNN {}'.format(config['cnn']))
     if args.model == 'tf':
-        model = Transformer(cnn, vocab.vocab_size, config['attn_size'],
-                            config['encoder_nhead'], config['decoder_nhead'], config['both_nhead'],
-                            config['encoder_nlayers'], config['decoder_nlayers'])
+        model = Transformer(cnn, vocab.vocab_size, config)
     elif args.model == 's2s':
         model = Seq2Seq(cnn, vocab.vocab_size, config['hidden_size'], config['attn_size'])
     else:
         raise ValueError('model should be "tf" or "s2s"')
 
+    if torch.cuda.device_count() > 1 and args.multi_gpus:
+        logger.info("Let's use %d GPUs!", torch.cuda.device_count())
+        model = nn.DataParallel(model)
+
     if args.debug_model:
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.DEBUG)
         model.eval()
         dummy_image_input = torch.rand(config['batch_size'], 3, config['scale_height'], config['scale_height'] * 2)
         dummy_target_input = torch.rand(config['max_length'], config['batch_size'], vocab.vocab_size)
         dummy_output_train = model.forward(dummy_image_input, dummy_target_input)
         dummy_output_greedy, _ = model.greedy(dummy_image_input, dummy_target_input[[0]])
-        print(dummy_output_train.shape)
-        print(dummy_output_greedy.shape)
-        print('Ok')
+        logger.debug(dummy_output_train.shape)
+        logger.debug(dummy_output_greedy.shape)
+        logger.info('Ok')
         exit(0)
 
     model.to(device)
@@ -146,7 +160,7 @@ def main(args):
         outputs = model.forward(imgs, targets_onehot)
 
         packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
-            outputs[1:], (lengths - 1).squeeze())[0]
+            outputs, (lengths - 1).squeeze())[0]
         packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
             targets[1:].squeeze(), (lengths - 1).squeeze())[0]
 
@@ -169,7 +183,7 @@ def main(args):
             outputs = model.forward(imgs, targets_onehot)
 
             packed_outputs = torch.nn.utils.rnn.pack_padded_sequence(
-                outputs[1:], (lengths - 1).squeeze())[0]
+                outputs, (lengths - 1).squeeze())[0]
             packed_targets = torch.nn.utils.rnn.pack_padded_sequence(
                 targets[1:].squeeze(), (lengths - 1).squeeze())[0]
 
@@ -194,16 +208,18 @@ def main(args):
 
     @trainer.on(Events.STARTED)
     def start_training(engine):
-        print('Config..')
-        print('='*60)
-        print(config)
-        print('='*60)
-        print('Start training..')
+        logger.info('Config..')
+        logger.info('='*60)
+        logger.info(config)
+        logger.info('='*60)
+        logger.info(model)
+        logger.info('='*60)
+        logger.info('Start training..')
 
     @trainer.on(Events.COMPLETED)
     def end_training(engine):
-        print('Training completed!!')
-        print('Total training time: {:3.2f}s'.format(training_timer.value()))
+        logger.info('Training completed!!')
+        logger.info('Total training time: {:3.2f}s'.format(training_timer.value()))
 
     @trainer.on(Events.ITERATION_COMPLETED)
     def log_training_tensorboard(engine):
@@ -215,7 +231,7 @@ def main(args):
     def log_training_terminal(engine):
         batch_train_timer.pause()
         batch_train_timer.step()
-        print("Train - Epoch: {} - Iter {} - Accuracy: {:.3f} Loss: {:.3f} Avg Time: {:.2f}"
+        logger.info("Train - Epoch: {} - Iter {} - Accuracy: {:.3f} Loss: {:.3f} Avg Time: {:.2f}"
               .format(engine.state.epoch, engine.state.iteration,
                       engine.state.metrics['running_train_acc'],
                       engine.state.metrics['running_train_loss'],
@@ -225,10 +241,10 @@ def main(args):
     @trainer.on(Events.EPOCH_COMPLETED)
     def validate(engine):
         writer.add_scalar("Train/Time", epoch_train_timer.value(), engine.state.epoch)
-        print('Train - Epoch: {} - Avg Time: {:3.2f}s'
+        logger.info('Train - Epoch: {} - Avg Time: {:3.2f}s'
               .format(engine.state.epoch, epoch_train_timer.value()))
         state = evaluator.run(val_loader)
-        print('Validate - Epoch: {} - Avg Time: {:3.2f}s'
+        logger.info('Validate - Epoch: {} - Avg Time: {:3.2f}s'
               .format(engine.state.epoch, validate_timer.value()))
         writer.add_scalar("Validation/Loss",
                           state.metrics['running_val_loss'],
@@ -240,7 +256,7 @@ def main(args):
 
     @evaluator.on(Events.ITERATION_COMPLETED(every=args.log_interval))
     def log_validation_terminal(engine):
-        print("Validate - Iter {}/{} - Avg accuracy: {:.3f} Avg loss: {:.3f}"
+        logger.info("Validate - Iter {}/{} - Avg accuracy: {:.3f} Avg loss: {:.3f}"
               .format(engine.state.iteration, len(val_loader),
                       engine.state.metrics['running_val_acc'], engine.state.metrics['running_val_loss']))
 
@@ -258,21 +274,24 @@ def main(args):
 
         if found_better:
             torch.save(to_save, os.path.join(CKPT_DIR, 'BEST_weights.pt'))
+            best_metrics = {
+                'hparam/val_acc': evaluator.state.metrics['running_val_acc'],
+                'hparam/val_loss': evaluator.state.metrics['running_val_loss'],
+                'hparam/training_time': training_timer.value(),
+            }
         filename = 'weights_val_loss_{:.3f}_val_acc_{:.3f}.pt'.format(engine.state.metrics['running_val_loss'],
                                                                       engine.state.metrics['running_val_acc'])
         torch.save(to_save, os.path.join(CKPT_DIR, filename))
 
     trainer.run(train_loader, max_epochs=2 if args.debug else config['max_epochs'])
     
-    writer.add_hparams(config, {
-        'hparam/val_acc': evaluator.state.metrics['running_val_acc'],
-        'hparam/val_loss': evaluator.state.metrics['running_val_loss'],
-        'hparam/training_time': training_timer.value(),
-    })
+    writer.add_hparams(config, best_metrics)
     
     writer.close()
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+
     parser = argparse.ArgumentParser()
     parser.add_argument('model', choices=['tf', 's2s'])
     parser.add_argument('--comment', type=str)
@@ -280,6 +299,7 @@ if __name__ == '__main__':
     parser.add_argument('--debug-model', action='store_true', default=False)
     parser.add_argument('--log-root', type=str, default='./runs')
     parser.add_argument('--gpu-id', type=int, default=0)
+    parser.add_argument('--multi-gpus', action='store_true', default=False)
     parser.add_argument('--log-interval', type=int, default=50)
     parser.add_argument('--resume', type=str)
     args = parser.parse_args()

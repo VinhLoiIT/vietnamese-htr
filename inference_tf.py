@@ -59,11 +59,10 @@ def main(args):
     vocab = get_vocab(config['dataset'])
 
     if args.model == 'tf':
-        model = Transformer(cnn, vocab.vocab_size, config['attn_size'],
-                            config['encoder_nhead'], config['decoder_nhead'], config['both_nhead'],
-                            config['encoder_nlayers'], config['decoder_nlayers'])
+        model = Transformer(cnn, vocab.vocab_size, config)
     elif args.model == 's2s':
-        model = Seq2Seq(cnn, vocab_size, config['hidden_size'], config['attn_size'])
+        # model = Seq2Seq(cnn, vocab_size, config['hidden_size'], config['attn_size'])
+        pass
     else:
         raise ValueError('model should be "tf" or "s2s"')
     model.to(device)

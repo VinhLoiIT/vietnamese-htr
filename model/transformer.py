@@ -5,23 +5,30 @@ import copy
 import math
 import random
 
-from .attention import Attention, MultiHeadAttention
+from .multiheadattention import AdditiveAttention, ScaleDotProductAttention
 
 
 class Transformer(nn.Module):
-    def __init__(self, cnn, vocab_size, attn_size, encoder_nhead, decoder_nhead, both_nhead, encoder_nlayers=1, decoder_nlayers=1):
+    def __init__(self, cnn, vocab_size, config):
         super().__init__()
 
         self.cnn = cnn
-        self.vocab_size = vocab_size
 
-        encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=encoder_nhead)
-        self.encoder = TransformerEncoder(encoder_layer, num_layers=encoder_nlayers)
+        if config['use_encoder']:
+            encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=config['encoder_nhead'], attn_type=config['encoder_attn'])
+            self.encoder = TransformerEncoder(encoder_layer, num_layers=config['encoder_nlayers'])
+        else:
+            self.encoder = None
+        decoder_layer = TransformerDecoderLayer(self.cnn.n_features, vocab_size, config['attn_size'],
+                                                nhead_vocab=config['decoder_nhead'], nhead_attn=config['encoder_decoder_nhead'],
+                                                decoder_attn=config['decoder_attn'], encoder_decoder_attn=config['encoder_decoder_attn'])
+        self.decoder = TransformerDecoder(config['attn_size'], decoder_layer, num_layers=config['decoder_nlayers'])
 
-        decoder_layer = TransformerDecoderLayer(self.cnn.n_features, vocab_size, attn_size, nhead=decoder_nhead)
-        self.decoder = TransformerDecoder(attn_size, decoder_layer, num_layers=decoder_nlayers)
+        self.character_distribution = nn.Linear(config['attn_size'], vocab_size)
 
-        self.character_distribution = nn.Linear(attn_size, vocab_size)
+    def generate_subsquence_mask(self, batch_size, size):
+        mask = torch.tril(torch.ones(batch_size, size, size)).bool()
+        return mask
 
     def forward(self, images, targets, teacher_forcing_ratio=0.5):
         '''
@@ -31,33 +38,35 @@ class Transformer(nn.Module):
         Return:
             - outputs: [L,B,V]
         '''
-        max_length = targets.size(0) - 1 # ignore <start>
+        max_length = targets.shape[0]
         batch_size, _, input_image_h, input_image_w = images.size()
 
         # Step 1: CNN Feature Extraction
         image_features = self.cnn(images) # [B, C', H', W']
+        
         feature_image_h, feature_image_w = image_features.size()[-2:]
         image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
         image_features = image_features.permute(2,0,1) # [S, B, C']
 
         # Step 2: Encoder forwarding
-        image_features, _ = self.encoder.forward(image_features, output_weights=False)
+        if self.encoder is not None:
+            image_features, _ = self.encoder.forward(image_features, output_weights=False)
 
         # Step 3: Decoder forwarding
-        targets = targets.float()
-        # predicts = torch.zeros(max_length, batch_size, self.vocab_size, dtype=torch.float32, device=targets.device)
-        # predicts[[0]] = targets[[0]]
-        predicts = targets[[0]]
+        targets = targets.float() # output shifted right
+        attn_mask = self.generate_subsquence_mask(batch_size, max_length).to(targets.device)
+        output, _ = self.decoder.forward(image_features, targets, attn_mask)
+        output = self.character_distribution(output)
 
-        for t in range(max_length):
-            # output, _ = self.decoder.forward(predicts, image_features)
-            # output = self.character_distribution(output)
-            # predicts = torch.cat([predicts, output], dim=0)
-            output, _ = self.decoder.forward(targets[:t+1], image_features)
-            output = self.character_distribution(output)
-            predicts = torch.cat([predicts, output], dim=0)
+        return output[1:]
+    
+        # predicts = targets[[0]]
+        # for t in range(max_length):
+        #     output, _ = self.decoder.forward(image_features, targets[:t+1])
+        #     output = self.character_distribution(output)
+        #     predicts = torch.cat([predicts, output], dim=0)
 
-        return predicts
+        # return predicts
 
     def greedy(self, images, start_input, output_weight=False, max_length=10):
         '''
@@ -77,14 +86,16 @@ class Transformer(nn.Module):
         image_features = image_features.permute(2,0,1) # [S, B, C']
 
         # Step 2: Encoder forwarding
-        image_features, _ = self.encoder.forward(image_features, output_weights=False)
+        if self.encoder is not None:
+            image_features, _ = self.encoder.forward(image_features, output_weights=False)
 
         # Step 3: Decoder forwarding
         predicts = start_input.float()
         weights = []
         for t in range(max_length):
-            output, weight = self.decoder.forward(predicts, image_features)
-            output = self.character_distribution(output)
+            attn_mask = self.generate_subsquence_mask(batch_size, len(predicts)).to(start_input.device)
+            output, weight = self.decoder.forward(image_features, predicts, attn_mask)
+            output = self.character_distribution(output[[-1]])
             output = F.softmax(output, -1)
             index = output.topk(1, -1)[1]
             output = torch.zeros_like(output)
@@ -119,12 +130,12 @@ class TransformerDecoder(nn.Module):
         self.num_layers = num_layers
         # self.norm = nn.LayerNorm(attn_size)
 
-    def forward(self, tgt, image_features, output_weight=False):
+    def forward(self, image_features, tgt, attn_mask=None, output_weight=False):
 
         output = tgt
         weights = []
         for i in range(self.num_layers):
-            output, weight = self.layers[i](image_features, tgt)
+            output, weight = self.layers[i](image_features, tgt, attn_mask)
             weights.append(weight)
         # output = self.norm(output)
 
@@ -134,14 +145,12 @@ class TransformerDecoder(nn.Module):
             return output, None
 
 class TransformerDecoderLayer(nn.Module):
-    def __init__(self, cnn_features, vocab_size, attn_size, nhead, dim_feedforward=2048, dropout=0.1):
+    def __init__(self, cnn_features, vocab_size, attn_size, nhead_vocab, nhead_attn, decoder_attn, encoder_decoder_attn, dim_feedforward=2048, dropout=0.1):
         super(TransformerDecoderLayer, self).__init__()
 
-        self.self_attn = MultiHeadAttention(vocab_size, vocab_size, vocab_size)
-        self.encoder_decoder_attn = MultiHeadAttention(cnn_features, vocab_size, attn_size)
+        self.self_attn = _get_attn(decoder_attn, vocab_size, vocab_size, vocab_size, nhead_vocab)
+        self.encoder_decoder_attn = _get_attn(encoder_decoder_attn, cnn_features, vocab_size, attn_size, nhead_attn)
 
-        # self.self_attn = nn.modules.MultiheadAttention(attn_size, nhead, dropout=dropout)
-        # self.multihead_attn = nn.modules.MultiheadAttention(attn_size, nhead, dropout=dropout)
 
         # Implementation of Feedforward model
         # self.linear1 = nn.Linear(attn_size, dim_feedforward)
@@ -157,24 +166,25 @@ class TransformerDecoderLayer(nn.Module):
 
         self.attn_size = attn_size
 
-    def forward(self, image_features, tgt, output_weights=False):
-        context_text, weight_text = self.self_attn.forward(tgt[[-1]], tgt)
-        # context_text = tgt + self.dropout1(context_text)
-        # context_text = self.norm1(context_text)
+    def forward(self, image_features, tgt, attn_mask=None, output_weights=False):
+        tgt2, weight_text = self.self_attn.forward(tgt, tgt, attn_mask)
+        # context_text, weight_text = self.self_attn.forward(tgt, tgt[[-1]], attn_mask)
+        # tgt = tgt + self.dropout1(tgt2)
+        # tgt = self.norm1(tgt)
 
-        context_attn, weight_attn = self.encoder_decoder_attn.forward(context_text, image_features)
-        # context_attn = context_attn + self.dropout2(context_attn)
-        # context_attn = self.norm2(context_attn)
+        tgt2, weight_attn = self.encoder_decoder_attn.forward(image_features, tgt2)
+        # tgt = tgt + self.dropout2(tgt2)
+        # tgt = self.norm2(tgt)
 
-        # tgt2 = self.linear2(self.dropout(F.relu(self.linear1(context_img))))
+        # tgt2 = self.linear2(self.dropout(F.relu(self.linear1(tgt))))
         # tgt = tgt + self.dropout3(tgt2)
         # tgt = self.norm3(tgt)
         # return tgt, weight
 
         if output_weights:
-            return context_attn, (weight_text, weight_attn)
+            return tgt2, (weight_text, weight_attn)
         else:
-            return context_attn, None
+            return tgt2, None
 
 class TransformerEncoder(nn.Module):
 
@@ -200,10 +210,10 @@ class TransformerEncoder(nn.Module):
             return output, None
 
 class TransformerEncoderLayer(nn.Module):
-    def __init__(self, feature_size, nhead, dim_feedforward=2048, dropout=0.1):
+    def __init__(self, feature_size, nhead, attn_type, dim_feedforward=2048, dropout=0.1):
         super(TransformerEncoderLayer, self).__init__()
         self.feature_size = feature_size
-        self.self_attn = MultiHeadAttention(feature_size, feature_size, feature_size, nhead=nhead)
+        self.self_attn = _get_attn(attn_type, feature_size, feature_size, feature_size, nhead)
         # Implementation of Feedforward model
         # self.linear1 = nn.Linear(feature_size, dim_feedforward)
         # self.dropout = nn.Dropout(dropout)
@@ -226,7 +236,13 @@ class TransformerEncoderLayer(nn.Module):
         else:
             return img_features, None
 
-
+def _get_attn(attn_type, feature_size, hidden_size, attn_size, nhead=1):
+    if attn_type == 'scale_dot_product':
+        return ScaleDotProductAttention(feature_size, hidden_size, attn_size, nhead)
+    elif attn_type == 'additive':
+        return AdditiveAttention(feature_size, hidden_size, attn_size, nhead)
+    else:
+        raise ValueError('Unknow attn_type={}, should be {}'.format(attn_type, ['scale_dot_product', 'additive']))
 
 def _get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
