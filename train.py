@@ -15,6 +15,8 @@ from data import get_data_loader, get_vocab, PAD_CHAR
 from model import Seq2Seq, Transformer, DenseNetFE
 from utils import ScaleImageByHeight, HandcraftFeature
 
+from torch.nn.utils.rnn import pack_padded_sequence
+
 import logging
 
 def main(args):
@@ -22,13 +24,13 @@ def main(args):
         # Common
         'dataset': 'vnondb', # Should be one of 'vnondb', 'rimes', 'iam'
         'cnn': 'densenet', # maybe other CNN # TODO: future implement CNN
-        'optimizer': 'adam', # Should be one of 'adam', 'RMSprop'
+        'optimizer': 'RMSprop', # Should be one of 'adam', 'RMSprop'
         'batch_size': 32,
-        'scale_height': 96,
+        'scale_height': 128,
         'attn_size': 256,
         'max_length': 10,
 
-        'n_epochs_decrease_lr': 15,
+        'n_epochs_decrease_lr': 5,
         'start_learning_rate': 1e-5,  # NOTE: paper start with 1e-8
         'end_learning_rate': 1e-11,
         'max_epochs': 50,
@@ -43,15 +45,16 @@ def main(args):
         'hidden_size': 256,
 
         # Transformer only
-        'use_encoder': True,
-        'encoder_attn': 'scale_dot_product',
+        'use_encoder': False,
+        'encoder_attn': 'additive',
         # 'encoder_attn': 'additive',
         'decoder_attn': 'additive',
         'encoder_decoder_attn': 'additive',
+        'direct_additive': True,
         # 'encoder_decoder_attn': 'scale_dot_product',
-        'encoder_nhead': 8, # should divisible by CNN.n_features
-        'decoder_nhead': 10, # should divisible by vocab_size
-        'encoder_decoder_nhead': 8, # should divisible by attn_size
+        'encoder_nhead': 1, # should divisible by CNN.n_features
+        'decoder_nhead': 1, # should divisible by vocab_size
+        'encoder_decoder_nhead': 1, # should divisible by attn_size
         'encoder_nlayers': 1,
         'decoder_nlayers': 1,
     }
@@ -89,6 +92,7 @@ def main(args):
     if args.debug_model:
         logger = logging.getLogger(__name__)
         logger.setLevel(logging.DEBUG)
+        print(model)
         model.eval()
         dummy_image_input = torch.rand(config['batch_size'], 3, config['scale_height'], config['scale_height'] * 2)
         dummy_target_input = torch.rand(config['max_length'], config['batch_size'], vocab.vocab_size)
@@ -100,7 +104,7 @@ def main(args):
         exit(0)
 
     model.to(device)
-    criterion = nn.CrossEntropyLoss(ignore_index=vocab.char2int[PAD_CHAR]).to(device)
+    criterion = nn.CrossEntropyLoss().to(device)
     if config['optimizer'] == 'RMSprop':
         optimizer = optim.RMSprop(model.parameters(),
                                   lr=config['start_learning_rate'],
@@ -158,15 +162,15 @@ def main(args):
         targets_onehot = targets_onehot.to(device)
 
         outputs = model(imgs, targets_onehot[:-1])
+        
+        packed_outputs = pack_padded_sequence(outputs, (lengths - 1).squeeze(-1))[0]
+        packed_targets = pack_padded_sequence(targets[1:].squeeze(-1), (lengths - 1).squeeze(-1))[0]
 
-        outputs = outputs.view(-1, vocab.vocab_size)
-        targets = targets[1:].view(-1)
-
-        loss = criterion(outputs, targets)
+        loss = criterion(packed_outputs, packed_targets)
         loss.backward()
         optimizer.step()
 
-        return outputs, targets
+        return packed_outputs, packed_targets
 
     def step_val(engine, batch):
         model.eval()
@@ -180,10 +184,10 @@ def main(args):
 
             outputs = model(imgs, targets_onehot[:-1])
 
-            outputs = outputs.view(-1, vocab.vocab_size)
-            targets = targets[1:].view(-1)
+            packed_outputs = pack_padded_sequence(outputs, (lengths - 1).squeeze(-1))[0]
+            packed_targets = pack_padded_sequence(targets[1:].squeeze(-1), (lengths - 1).squeeze(-1))[0]
 
-            return outputs, targets
+            return packed_outputs, packed_targets
 
     trainer = Engine(step_train)
     evaluator = Engine(step_val)

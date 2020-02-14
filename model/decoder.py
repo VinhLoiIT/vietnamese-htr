@@ -3,10 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import random
-from .attention import Attention
+from .attention import get_attention
 
 class Decoder(nn.Module):
-    def __init__(self, feature_size, hidden_size, vocab_size, attn_size):
+    def __init__(self, attention, feature_size, hidden_size, vocab_size, attn_size):
         super(Decoder, self).__init__()
 
         self.feature_size = feature_size
@@ -19,10 +19,7 @@ class Decoder(nn.Module):
             hidden_size=self.hidden_size,
         )
 
-        self.attention = Attention(
-            self.feature_size,
-            self.hidden_size,
-            self.attn_size)
+        self.attention = get_attention(attention, feature_size, hidden_size, attn_size)
 
         self.character_distribution = nn.Linear(self.hidden_size, self.vocab_size)
 
@@ -47,7 +44,6 @@ class Decoder(nn.Module):
         cell_state = self.init_hidden(batch_size).to(img_features.device)
 
         outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
-        weights = torch.zeros(max_length, batch_size, num_pixels, device=img_features.device) 
 
         for t in range(max_length):
             context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
@@ -55,7 +51,6 @@ class Decoder(nn.Module):
             output = self.character_distribution(output)
 
             outputs[[t]] = output
-            weights[[t]] = weight.transpose(0, 2)
 
             teacher_force = random.random() < teacher_forcing_ratio
             if self.training and teacher_force:
@@ -63,8 +58,8 @@ class Decoder(nn.Module):
             else:
                 rnn_input = output
 
-        return outputs, weights
-    
+        return outputs
+
     def greedy(self, img_features, start_input, max_length=10):
         num_pixels = img_features.size(0)
         batch_size = img_features.size(1)
@@ -79,7 +74,7 @@ class Decoder(nn.Module):
 
         # pdb.set_trace()
         for t in range(max_length):
-            context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
+            context, weight = self.attention(hidden, img_features, output_weights=True) # [B, 1, num_pixels]
 
             rnn_input = torch.cat((rnn_input, context), -1)
 
@@ -87,7 +82,7 @@ class Decoder(nn.Module):
             output = self.character_distribution(output)
 
             outputs[[t]] = output
-            weights[[t]] = weight.transpose(0, 2)
+            weights[[t]] = weight.transpose(0, 1)
 
             rnn_input = output
 

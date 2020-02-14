@@ -5,8 +5,7 @@ import copy
 import math
 import random
 
-from .multiheadattention import AdditiveAttention, ScaleDotProductAttention
-
+from .attention import get_attention
 
 class Transformer(nn.Module):
     def __init__(self, cnn, vocab_size, config):
@@ -14,17 +13,21 @@ class Transformer(nn.Module):
 
         self.cnn = cnn
 
-        if config['use_encoder']:
+        if config.get('use_encoder', True):
             encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=config['encoder_nhead'], attn_type=config['encoder_attn'])
             self.encoder = TransformerEncoder(encoder_layer, num_layers=config['encoder_nlayers'])
         else:
             self.encoder = None
         decoder_layer = TransformerDecoderLayer(self.cnn.n_features, vocab_size, config['attn_size'],
                                                 nhead_vocab=config['decoder_nhead'], nhead_attn=config['encoder_decoder_nhead'],
-                                                decoder_attn=config['decoder_attn'], encoder_decoder_attn=config['encoder_decoder_attn'])
+                                                decoder_attn=config['decoder_attn'], encoder_decoder_attn=config['encoder_decoder_attn'],
+                                                direct_additive=config['direct_additive'])
         self.decoder = TransformerDecoder(config['attn_size'], decoder_layer, num_layers=config['decoder_nlayers'])
 
-        self.character_distribution = nn.Linear(config['attn_size'], vocab_size)
+        if config['direct_additive']:
+            self.character_distribution = nn.Linear(self.cnn.n_features, vocab_size)
+        else:
+            self.character_distribution = nn.Linear(config['attn_size'], vocab_size)
 
     def generate_subsquence_mask(self, batch_size, size):
         mask = torch.tril(torch.ones(batch_size, size, size)).bool()
@@ -59,13 +62,6 @@ class Transformer(nn.Module):
         output = self.character_distribution(output)
 
         return output
-        # predicts = targets[[0]]
-        # for t in range(max_length):
-        #     output, _ = self.decoder.forward(image_features, targets[:t+1])
-        #     output = self.character_distribution(output)
-        #     predicts = torch.cat([predicts, output], dim=0)
-
-        # return predicts
 
     def greedy(self, images, start_input, output_weight=False, max_length=10):
         '''
@@ -88,14 +84,11 @@ class Transformer(nn.Module):
         if self.encoder is not None:
             image_features, _ = self.encoder(image_features, output_weights=False)
 
-        import pdb
-        pdb.set_trace()
         # Step 3: Decoder forwarding
         predicts = start_input.float()
         weights = []
         for t in range(max_length):
-            attn_mask = self.generate_subsquence_mask(batch_size, len(predicts)).to(start_input.device)
-            output, weight = self.decoder(image_features, predicts, attn_mask)
+            output, weight = self.decoder(image_features, predicts)
             output = self.character_distribution(output[[-1]])
             output = F.softmax(output, -1)
             index = output.topk(1, -1)[1]
@@ -104,7 +97,7 @@ class Transformer(nn.Module):
             predicts = torch.cat([predicts, output], dim=0)
             weights.append(weight)
 
-        return predicts, weights
+        return predicts[1:], weights
 
 class PositionalEncoding(nn.Module):
 
@@ -146,11 +139,40 @@ class TransformerDecoder(nn.Module):
             return output, None
 
 class TransformerDecoderLayer(nn.Module):
-    def __init__(self, cnn_features, vocab_size, attn_size, nhead_vocab, nhead_attn, decoder_attn, encoder_decoder_attn, dim_feedforward=2048, dropout=0.1):
+    def __init__(self, cnn_features, vocab_size, attn_size,
+                 nhead_vocab, nhead_attn, decoder_attn, encoder_decoder_attn,
+                 direct_additive=False, dim_feedforward=2048, dropout=0.1):
+        '''
+        TransformerDecoderLayer
+        
+        - cnn_features (int): dimension of features that CNN extracts
+        - vocab_size (int): embedding size of character
+        - attn_size (int): for AdditiveAttention
+        - nhead_vocab (int): number of head for self attention (= 1 if not use multihead)
+        - nhead_attn (int): number of head for attention between encoder and decoder (= 1 if not use multihead)
+        - decoder_attn (str): type of self attention, should be "additive" or "scale_dot_product"
+        - encoder_decoder_attn (str): type of attention between encoder and decoder, should be "additive" or "scale_dot_product"
+        - direct_additive (bool): parameter of Additive Attention (see Notes)
+        
+        Notes:
+        - MultiheadAttention requires the same dimension of queries and keys (i.e. cnn_features == vocab_size), thus
+        normally, we could convert dimension by a nn.Linear to attn_size (see self.Wc, self.Uc). However additive attention
+        also convert dimension (see AdditiveAttention implementation), this would make model too complicated.
+          - direct_additive=True: Ignore nhead_attn and use AdditiveAttention only
+          - direct_additive=False: Convert queries and values to attn_size and use MultiheadAttention with nhead_attn heads
+        '''
         super(TransformerDecoderLayer, self).__init__()
 
-        self.self_attn = _get_attn(decoder_attn, vocab_size, vocab_size, vocab_size, nhead_vocab)
-        self.encoder_decoder_attn = _get_attn(encoder_decoder_attn, cnn_features, vocab_size, attn_size, nhead_attn)
+        self.self_attn = get_attention(decoder_attn, vocab_size, vocab_size, vocab_size, nhead_vocab)
+        
+        if direct_additive:
+            self._convert_dim = False
+            self.encoder_decoder_attn = get_attention(encoder_decoder_attn, cnn_features, vocab_size, attn_size, 1)
+        else:
+            self._convert_dim = True
+            self.Wc = nn.Linear(cnn_features, attn_size)
+            self.Uc = nn.Linear(vocab_size, attn_size)
+            self.encoder_decoder_attn = get_attention(encoder_decoder_attn, attn_size, attn_size, attn_size, nhead_attn)
 
 
         # Implementation of Feedforward model
@@ -168,12 +190,16 @@ class TransformerDecoderLayer(nn.Module):
         self.attn_size = attn_size
 
     def forward(self, image_features, tgt, attn_mask=None, output_weights=False):
-        tgt2, weight_text = self.self_attn(tgt, tgt, attn_mask)
+        tgt2, weight_text = self.self_attn(tgt, tgt, attn_mask, output_weights)
         # context_text, weight_text = self.self_attn(tgt, tgt[[-1]], attn_mask)
         # tgt = tgt + self.dropout1(tgt2)
         # tgt = self.norm1(tgt)
+        
+        if self._convert_dim:
+            tgt2 = self.Uc(tgt2)
+            image_features = self.Wc(image_features)
 
-        tgt2, weight_attn = self.encoder_decoder_attn(image_features, tgt2)
+        tgt2, weight_attn = self.encoder_decoder_attn(tgt2, image_features, None, output_weights)
         # tgt = tgt + self.dropout2(tgt2)
         # tgt = self.norm2(tgt)
 
@@ -214,7 +240,7 @@ class TransformerEncoderLayer(nn.Module):
     def __init__(self, feature_size, nhead, attn_type, dim_feedforward=2048, dropout=0.1):
         super(TransformerEncoderLayer, self).__init__()
         self.feature_size = feature_size
-        self.self_attn = _get_attn(attn_type, feature_size, feature_size, feature_size, nhead)
+        self.self_attn = get_attention(attn_type, feature_size, feature_size, feature_size, nhead)
         # Implementation of Feedforward model
         # self.linear1 = nn.Linear(feature_size, dim_feedforward)
         # self.dropout = nn.Dropout(dropout)
@@ -237,13 +263,6 @@ class TransformerEncoderLayer(nn.Module):
         else:
             return img_features, None
 
-def _get_attn(attn_type, feature_size, hidden_size, attn_size, nhead=1):
-    if attn_type == 'scale_dot_product':
-        return ScaleDotProductAttention(feature_size, hidden_size, attn_size, nhead)
-    elif attn_type == 'additive':
-        return AdditiveAttention(feature_size, hidden_size, attn_size, nhead)
-    else:
-        raise ValueError('Unknow attn_type={}, should be {}'.format(attn_type, ['scale_dot_product', 'additive']))
 
 def _get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
