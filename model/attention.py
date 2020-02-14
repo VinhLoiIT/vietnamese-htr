@@ -31,6 +31,7 @@ class Attention(nn.Module):
     def apply_mask(self, weights, attn_mask):
         if attn_mask is not None:
             weights[~attn_mask] = float('-inf')
+
         return weights
 
     def forward(self, queries, keys, attn_mask=None, output_weights=False):
@@ -55,8 +56,8 @@ class Attention(nn.Module):
 class AdditiveAttention(Attention):
     def __init__(self, queries_size, key_size, attn_size):
         super().__init__()
-        self.Wa = nn.Linear(queries_size, attn_size)
-        self.Ua = nn.Linear(key_size, attn_size)
+        self.Wa = nn.Linear(key_size, attn_size)
+        self.Ua = nn.Linear(queries_size, attn_size)
         self.va = nn.Linear(attn_size, 1)
 
     def score(self, queries, keys):
@@ -68,12 +69,12 @@ class AdditiveAttention(Attention):
         Output:
         - weights: [B, T, S]
         '''
-        queries = self.Wa(queries).transpose(0,1) # [B,T,A]
-        keys = self.Ua(keys).transpose(0,1) # [B,S,A]
+        keys = self.Wa(keys).transpose(0,1) # [B,S,A]
+        queries = self.Ua(queries).transpose(0,1) # [B,T,A]
         
         keys = keys.unsqueeze(1) # [B,1,S,A]
         queries = queries.unsqueeze(2) # [B,T,1,A]
-        
+
         weights = self.va(torch.tanh(queries + keys)) # [B,T,S,1]
         weights = weights.squeeze(-1) # [B,T,S]
         return weights
