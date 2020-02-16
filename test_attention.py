@@ -66,8 +66,8 @@ if __name__ == "__main__":
         print(v1.Wa.weight.data.shape, v2.Wa.weight.data.shape)
         assert v1.Wa.weight.data.shape == v2.Wa.weight.data.shape
         assert v1.Wa.bias.data.shape == v2.Wa.bias.data.shape
-        rand_w = torch.randint(10,(v1.Wa.weight.data.shape)).float()
-        rand_b = torch.randint(10,(v1.Wa.bias.data.shape)).float()
+        rand_w = torch.rand(v1.Wa.weight.data.shape).float()
+        rand_b = torch.rand(v1.Wa.bias.data.shape).float()
         v1.Wa.weight.data = rand_w
         v2.Wa.weight.data = rand_w
         v1.Wa.bias.data = rand_b
@@ -75,8 +75,8 @@ if __name__ == "__main__":
                 
         assert v1.Ua.weight.data.shape == v2.Ua.weight.data.shape
         assert v1.Ua.bias.data.shape == v2.Ua.bias.data.shape
-        rand_w = torch.randint(10, (v1.Ua.weight.data.shape)).float()
-        rand_b = torch.randint(10, (v1.Ua.bias.data.shape)).float()
+        rand_w = torch.rand(v1.Ua.weight.data.shape).float()
+        rand_b = torch.rand(v1.Ua.bias.data.shape).float()
         v1.Ua.weight.data = rand_w
         v2.Ua.weight.data = rand_w
         v1.Ua.bias.data = rand_b
@@ -84,8 +84,8 @@ if __name__ == "__main__":
                 
         assert v1.va.weight.data.shape == v2.va.weight.data.shape
         assert v1.va.bias.data.shape == v2.va.bias.data.shape
-        rand_w = torch.randint(10,(v1.va.weight.data.shape)).float()
-        rand_b = torch.randint(10,(v1.va.bias.data.shape)).float()
+        rand_w = torch.rand(v1.va.weight.data.shape).float()
+        rand_b = torch.rand(v1.va.bias.data.shape).float()
         v1.va.weight.data = rand_w
         v2.va.weight.data = rand_w
         v1.va.bias.data = rand_b
@@ -99,7 +99,7 @@ if __name__ == "__main__":
         print('-'*50)
         
         batch_size = 1
-        hiddens_len = 3
+        hiddens_len = 5
         keys_len = 3
         dummy_hiddens = torch.rand(hiddens_len, batch_size, queries_size, dtype=torch.float32)
         dummy_keys = torch.rand(keys_len, batch_size, keys_size, dtype=torch.float32)

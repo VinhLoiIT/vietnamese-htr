@@ -50,7 +50,7 @@ def main(args):
         # 'encoder_attn': 'additive',
         'decoder_attn': 'additive',
         'encoder_decoder_attn': 'additive',
-        'direct_additive': True,
+        'direct_additive': False,
         # 'encoder_decoder_attn': 'scale_dot_product',
         'encoder_nhead': 1, # should divisible by CNN.n_features
         'decoder_nhead': 1, # should divisible by vocab_size
