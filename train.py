@@ -29,6 +29,7 @@ def main(args):
         'scale_height': 128,
         'attn_size': 256,
         'max_length': 10,
+        'use_handcraft': False, # Use handcraft features as input instead of Grayscale(3)
 
         'n_epochs_decrease_lr': 5,
         'start_learning_rate': 1e-5,  # NOTE: paper start with 1e-8
@@ -52,9 +53,9 @@ def main(args):
         'encoder_decoder_attn': 'additive',
         'direct_additive': False,
         # 'encoder_decoder_attn': 'scale_dot_product',
-        'encoder_nhead': 1, # should divisible by CNN.n_features
-        'decoder_nhead': 1, # should divisible by vocab_size
-        'encoder_decoder_nhead': 1, # should divisible by attn_size
+        'encoder_nhead': 8, # should divisible by CNN.n_features
+        'decoder_nhead': 10, # should divisible by vocab_size
+        'encoder_decoder_nhead': 8, # should divisible by attn_size
         'encoder_nlayers': 1,
         'decoder_nlayers': 1,
     }
@@ -127,9 +128,8 @@ def main(args):
         reduce_lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
 
     image_transform = transforms.Compose([
-        transforms.Grayscale(3),
         ScaleImageByHeight(config['scale_height']),
-        # HandcraftFeature(),
+        HandcraftFeature() if config['use_handcraft'] else transforms.Grayscale(3),
         transforms.ToTensor(),
     ])
 

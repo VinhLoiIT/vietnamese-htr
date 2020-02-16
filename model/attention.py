@@ -2,11 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import copy
+
 def get_attention(attn_type, feature_size, hidden_size, attn_size, nhead=1):
     if nhead > 1:
         assert attn_size % nhead == 0
         if attn_type == 'scale_dot_product':
-            attn = ScaleDotProductMultiHeadAttention(nhead)
+            attn = ScaleDotProductMultiHeadAttention(attn_size, nhead)
         elif attn_type == 'additive':
             attn = AdditiveMultiHeadAttention(attn_size, nhead)
         else:
@@ -103,24 +105,27 @@ class ScaleDotProductAttention(Attention):
 
 
 class MultiHeadAttention(Attention):
-    def __init__(self, attn, nhead=1):
+    def __init__(self, attn, attn_size, nhead=1):
         super().__init__()
-        self.attn = attn
+        assert attn_size % nhead == 0
+        head_attn_size = attn_size // nhead
         self.nhead = nhead
+        self.heads = _get_clones(attn, self.nhead)
+        self.q_proj = nn.Linear(head_attn_size, head_attn_size)
+        self.k_proj = nn.Linear(head_attn_size, head_attn_size)
+        self.v_proj = nn.Linear(head_attn_size, head_attn_size)
+        self.o_proj = nn.Linear(attn_size, attn_size)
 
     def apply_mask(self, weights, attn_mask):
         '''
         Shapes:
-        - weights: [B*nhead,T,S]
+        - weights: [nhead,B,T,S]
         - attn_mask: [B,T,S]
-        - output: [B,T,S]
+        - output: [nhead,B,T,S]
         '''
         if attn_mask is not None:
-            saved_shape = weights.shape
-            weights = weights.view(self.nhead, *attn_mask.shape) # [nhead, B,T,S]
-            attn_mask = attn_mask.expand_as(weights) # [nhead, B,T,S]
-            weights[~attn_mask] = float('-inf')
-            weights = weights.view(*saved_shape) # [B*nhead,T,S]
+            attn_mask = attn_mask.expand_as(weights) # [nhead,B,T,S]
+            super().apply_mask(weights, attn_mask) # [nhead, B,T,S]
         return weights
 
     def forward(self, queries, keys, attn_mask=None, output_weights=False):
@@ -138,18 +143,24 @@ class MultiHeadAttention(Attention):
         attn_size = keys.size(-1)
         assert attn_size % self.nhead == 0
 
-        queries_multihead = queries.view(len_queries, batch_size*self.nhead, -1) # [T, B*nhead, head_attn_size]
-        keys_multihead = keys.view(len_keys, batch_size*self.nhead, -1) # [S, B*nhead, head_attn_size]
-
-        weights = self.attn.score(queries_multihead, keys_multihead) # [B*nhead, T, S]
-        weights = self.apply_mask(weights, attn_mask)
-        weights = F.softmax(weights, dim=-1) # [B,T,S]
+        queries_multihead = queries.view(len_queries, batch_size, self.nhead, -1).permute(2,0,1,3) # [nhead, T, B, head_attn_size]
+        keys_multihead = keys.view(len_keys, batch_size, self.nhead, -1).permute(2,0,1,3) # [nhead, S, B, head_attn_size]
         
-        values = weights.bmm(keys_multihead.transpose(0,1)) # [B*nhead, T, head_attn_size]
-        values = values.view(len_queries, batch_size, -1)
+        queries_multihead_proj = self.q_proj(queries_multihead) # [nhead, T, B, head_attn_size]
+        keys_multihead_proj = self.k_proj(keys_multihead) # [nhead, S, B, head_attn_size]
+        values_multihead_proj = self.v_proj(keys_multihead) # [nhead, S, B, head_attn_size] - we usually pass values=keys
+
+        weights = torch.cat([self.heads[i].score(queries_multihead[i], keys_multihead[i]).unsqueeze(0) for i in range(self.nhead)], dim=0) # [nhead, B, T, S]
+        weights = self.apply_mask(weights, attn_mask) # [nhead, B,T,S]
+        weights = F.softmax(weights, dim=-1) # [nhead, B,T,S]
+        
+        # TODO: add dropout to weights..
+        
+        values = weights.matmul(values_multihead_proj.transpose(1,2)) # [nhead, B,T,head_attn_size]
+        values = values.transpose(0,2).reshape(len_queries, batch_size, -1) # [T,B,A]
+        values = self.o_proj(values)
         
         if output_weights:
-            weights = weights.view(self.nhead, batch_size, len_queries, -1) # [nhead, B, T, S]
             weights = torch.mean(weights, dim=0, keepdim=False) # weight: [B, T, S]
             return values, weights
         else:
@@ -160,9 +171,13 @@ class AdditiveMultiHeadAttention(MultiHeadAttention):
         assert attn_size % nhead == 0
         head_attn_size = attn_size // nhead
         attn = AdditiveAttention(head_attn_size, head_attn_size, head_attn_size)
-        super().__init__(attn, nhead)
+        super().__init__(attn, attn_size, nhead)
 
 class ScaleDotProductMultiHeadAttention(MultiHeadAttention):
-    def __init__(self, nhead):
+    def __init__(self, attn_size, nhead):
+        assert attn_size % nhead == 0
         attn = ScaleDotProductAttention()
-        super().__init__(attn, nhead)
+        super().__init__(attn, attn_size, nhead)
+
+def _get_clones(module, N):
+    return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
