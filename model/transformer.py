@@ -144,7 +144,6 @@ class TransformerDecoderLayer(nn.Module):
                  direct_additive=False, dim_feedforward=2048, dropout=0.1):
         '''
         TransformerDecoderLayer
-        
         - cnn_features (int): dimension of features that CNN extracts
         - vocab_size (int): embedding size of character
         - attn_size (int): for AdditiveAttention
@@ -153,7 +152,7 @@ class TransformerDecoderLayer(nn.Module):
         - decoder_attn (str): type of self attention, should be "additive" or "scale_dot_product"
         - encoder_decoder_attn (str): type of attention between encoder and decoder, should be "additive" or "scale_dot_product"
         - direct_additive (bool): parameter of Additive Attention (see Notes)
-        
+
         Notes:
         - MultiheadAttention requires the same dimension of queries and keys (i.e. cnn_features == vocab_size), thus
         normally, we could convert dimension by a nn.Linear to attn_size (see self.Wc, self.Uc). However additive attention
@@ -164,7 +163,7 @@ class TransformerDecoderLayer(nn.Module):
         super(TransformerDecoderLayer, self).__init__()
 
         self.self_attn = get_attention(decoder_attn, vocab_size, vocab_size, vocab_size, nhead_vocab)
-        
+
         if direct_additive:
             self._convert_dim = False
             self.encoder_decoder_attn = get_attention(encoder_decoder_attn, cnn_features, vocab_size, attn_size, 1)
@@ -176,42 +175,41 @@ class TransformerDecoderLayer(nn.Module):
 
 
         # Implementation of Feedforward model
-        # self.linear1 = nn.Linear(attn_size, dim_feedforward)
-        # self.dropout = nn.Dropout(dropout)
-        # self.linear2 = nn.Linear(dim_feedforward, attn_size)
+        self.linear1 = nn.Linear(attn_size, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, attn_size)
 
-        # self.norm1 = nn.LayerNorm(vocab_size)
-        # self.norm2 = nn.LayerNorm(attn_size)
-        # self.norm3 = nn.LayerNorm(attn_size)
-        # self.dropout1 = nn.Dropout(dropout)
-        # self.dropout2 = nn.Dropout(dropout)
-        # self.dropout3 = nn.Dropout(dropout)
+        self.norm1 = nn.LayerNorm(vocab_size)
+        self.norm2 = nn.LayerNorm(attn_size)
+        self.norm3 = nn.LayerNorm(attn_size)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+        self.dropout3 = nn.Dropout(dropout)
 
         self.attn_size = attn_size
 
     def forward(self, image_features, tgt, attn_mask=None, output_weights=False):
         tgt2, weight_text = self.self_attn(tgt, tgt, attn_mask, output_weights)
-        # context_text, weight_text = self.self_attn(tgt, tgt[[-1]], attn_mask)
-        # tgt = tgt + self.dropout1(tgt2)
-        # tgt = self.norm1(tgt)
-        
+        tgt = tgt + self.dropout1(tgt2)
+        tgt = self.norm1(tgt)
+
         if self._convert_dim:
-            tgt2 = self.Uc(tgt2)
+            tgt = self.Uc(tgt)
             image_features = self.Wc(image_features)
 
-        tgt2, weight_attn = self.encoder_decoder_attn(tgt2, image_features, None, output_weights)
-        # tgt = tgt + self.dropout2(tgt2)
-        # tgt = self.norm2(tgt)
+        tgt2, weight_attn = self.encoder_decoder_attn(tgt, image_features, None, output_weights)
+        tgt = tgt + self.dropout2(tgt2)
+        tgt = self.norm2(tgt)
 
-        # tgt2 = self.linear2(self.dropout(F.relu(self.linear1(tgt))))
-        # tgt = tgt + self.dropout3(tgt2)
-        # tgt = self.norm3(tgt)
+        tgt2 = self.linear2(self.dropout(F.relu(self.linear1(tgt))))
+        tgt = tgt + self.dropout3(tgt2)
+        tgt = self.norm3(tgt)
         # return tgt, weight
 
         if output_weights:
-            return tgt2, (weight_text, weight_attn)
+            return tgt, (weight_text, weight_attn)
         else:
-            return tgt2, None
+            return tgt, None
 
 class TransformerEncoder(nn.Module):
 
