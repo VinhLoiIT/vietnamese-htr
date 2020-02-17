@@ -240,22 +240,22 @@ class TransformerEncoderLayer(nn.Module):
         self.feature_size = feature_size
         self.self_attn = get_attention(attn_type, feature_size, feature_size, feature_size, nhead)
         # Implementation of Feedforward model
-        # self.linear1 = nn.Linear(feature_size, dim_feedforward)
-        # self.dropout = nn.Dropout(dropout)
-        # self.linear2 = nn.Linear(dim_feedforward, feature_size)
+        self.linear1 = nn.Linear(feature_size, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, feature_size)
 
-        # self.norm1 = nn.LayerNorm(feature_size)
-        # self.norm2 = nn.LayerNorm(feature_size)
-        # self.dropout1 = nn.Dropout(dropout)
-        # self.dropout2 = nn.Dropout(dropout)
+        self.norm1 = nn.LayerNorm(feature_size)
+        self.norm2 = nn.LayerNorm(feature_size)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, img_features, output_weights=False):
-        img_features, weight = self.self_attn(img_features, img_features)
-        # img_features = img_features + self.dropout1(img_features2)
-        # img_features = self.norm1(img_features)
-        # img_features2 = self.linear2(self.dropout(F.relu(self.linear1(img_features))))
-        # img_features = img_features + self.dropout2(img_features2)
-        # img_features = self.norm2(img_features)
+        img_features2, weight = self.self_attn(img_features, img_features)
+        img_features = img_features + self.dropout1(img_features2)
+        img_features = self.norm1(img_features)
+        img_features2 = self.linear2(self.dropout(F.relu(self.linear1(img_features))))
+        img_features = img_features + self.dropout2(img_features2)
+        img_features = self.norm2(img_features)
         if output_weights:
             return img_features, weight
         else:

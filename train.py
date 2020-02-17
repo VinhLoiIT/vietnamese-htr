@@ -25,7 +25,7 @@ def main(args):
         'dataset': 'vnondb', # Should be one of 'vnondb', 'rimes', 'iam'
         'cnn': 'densenet', # maybe other CNN # TODO: future implement CNN
         'optimizer': 'RMSprop', # Should be one of 'adam', 'RMSprop'
-        'batch_size': 16,
+        'batch_size': 8,
         'scale_height': 128,
         'attn_size': 256,
         'max_length': 10,
@@ -47,8 +47,8 @@ def main(args):
 
         # Transformer only
         'use_encoder': True,
+        # 'encoder_attn': 'scale_dot_product',
         'encoder_attn': 'additive',
-        # 'encoder_attn': 'additive',
         'decoder_attn': 'additive',
         'encoder_decoder_attn': 'additive',
         'direct_additive': False,
