@@ -18,11 +18,11 @@ def _get_dataset_partition_helper(dataset, partition, transform):
             return VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv', transform)
         return None
     elif dataset == 'rimes':
-        if dataset == 'test':
+        if partition == 'test':
             return RIMES('./data/RIMES/data_test', './data/RIMES/grount_truth_test_icdar2011.txt', transform)
-        if dataset == 'train':
+        if partition == 'train':
             return RIMES('./data/RIMES/trainingsnippets_icdar/training_WR', './data/RIMES/groundtruth_training_icdar2011.txt', transform)
-        if dataset == 'val':
+        if partition == 'val':
             return RIMES('./data/RIMES/validationsnippets_icdar/testdataset_ICDAR', './data/RIMES/ground_truth_validation_icdar2011.txt', transform)
         return None
     elif dataset == 'iam':
