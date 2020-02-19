@@ -29,7 +29,7 @@ class HandcraftFeature(object):
         _, hog_image = hog(image, orientations=self.orientations, visualize=True)
         hog_image_rescaled = exposure.rescale_intensity(hog_image, in_range=(0, 10))
         handcraft_img[:, :, 2] = np.array(hog_image_rescaled)
-        #handcraft_img = Image.fromarray(np.uint8(handcraft_img))
+        handcraft_img = Image.fromarray(np.uint8(handcraft_img))
         return handcraft_img
     
 class PaddingWidth(object):

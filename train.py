@@ -25,7 +25,7 @@ def main(args):
         'dataset': 'vnondb', # Should be one of 'vnondb', 'rimes', 'iam'
         'cnn': 'densenet', # maybe other CNN # TODO: future implement CNN
         'optimizer': 'RMSprop', # Should be one of 'adam', 'RMSprop'
-        'batch_size': 8,
+        'batch_size': 32,
         'scale_height': 128,
         'attn_size': 256,
         'max_length': 10,
@@ -46,27 +46,29 @@ def main(args):
         'hidden_size': 256,
 
         # Transformer only
-        'use_encoder': True,
+        'use_encoder': False,
+        'use_FFNN': False,
         # 'encoder_attn': 'scale_dot_product',
         'encoder_attn': 'additive',
         'decoder_attn': 'additive',
         'encoder_decoder_attn': 'additive',
         'direct_additive': False,
         # 'encoder_decoder_attn': 'scale_dot_product',
-        'encoder_nhead': 8, # should divisible by CNN.n_features
-        'decoder_nhead': 10, # should divisible by vocab_size
-        'encoder_decoder_nhead': 8, # should divisible by attn_size
+        'encoder_nhead': 1, # should divisible by CNN.n_features
+        'decoder_nhead': 1, # should divisible by vocab_size
+        'encoder_decoder_nhead': 1, # should divisible by attn_size
         'encoder_nlayers': 1,
         'decoder_nlayers': 1,
     }
-    
+
     best_metrics = dict()
-    
+
     vocab = get_vocab(config['dataset'])
     logger = logging.getLogger('MainTraining')
 
     device = f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu'
     logger.info('Device = {}'.format(device))
+    logger.info('Vocab size = {}'.format(vocab.vocab_size))
 
     if args.resume:
         logger.info('Resuming from {}'.format(args.resume))
@@ -162,7 +164,7 @@ def main(args):
         targets_onehot = targets_onehot.to(device)
 
         outputs = model(imgs, targets_onehot[:-1])
-        
+
         packed_outputs = pack_padded_sequence(outputs, (lengths - 1).squeeze(-1))[0]
         packed_targets = pack_padded_sequence(targets[1:].squeeze(-1), (lengths - 1).squeeze(-1))[0]
 
@@ -182,7 +184,7 @@ def main(args):
             targets = targets.to(device)
             targets_onehot = targets_onehot.to(device)
 
-            outputs = model(imgs, targets_onehot[:-1])
+            outputs, _ = model.greedy(imgs, targets_onehot[[0]])
 
             packed_outputs = pack_padded_sequence(outputs, (lengths - 1).squeeze(-1))[0]
             packed_targets = pack_padded_sequence(targets[1:].squeeze(-1), (lengths - 1).squeeze(-1))[0]
@@ -208,7 +210,6 @@ def main(args):
 
     @trainer.on(Events.STARTED)
     def start_training(engine):
-        logger.info('Config..')
         logger.info('='*60)
         logger.info(config)
         logger.info('='*60)
@@ -284,9 +285,9 @@ def main(args):
         torch.save(to_save, os.path.join(CKPT_DIR, filename))
 
     trainer.run(train_loader, max_epochs=2 if args.debug else config['max_epochs'])
-    
+
     writer.add_hparams(config, best_metrics)
-    
+
     writer.close()
 
 if __name__ == '__main__':
