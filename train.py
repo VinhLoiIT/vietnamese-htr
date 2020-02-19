@@ -192,7 +192,7 @@ def main(args):
             logits = pack_padded_sequence(logits, (lengths - 1).squeeze(-1))[0]
             packed_targets = pack_padded_sequence(targets[1:].squeeze(-1), (lengths - 1).squeeze(-1))[0]
 
-            return logits, packed_targets, outputs, targets
+            return logits, packed_targets, outputs, targets[1:]
 
     trainer = Engine(step_train)
     evaluator = Engine(step_val)

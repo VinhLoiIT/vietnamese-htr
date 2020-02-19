@@ -54,8 +54,6 @@ class CharacterErrorRate(Metric):
         y = y.squeeze(-1)
         batch_size = y_pred.size(0)
 
-        batch_cers = 0
-
         y_pred_lengths = []
         for sample in y_pred.tolist():
             try:
@@ -72,10 +70,10 @@ class CharacterErrorRate(Metric):
                 end = None
             y_lengths.append(end)
 
+        batch_cers = 0
         for i in range(batch_size):
             CER = self.cer(y_pred[i, :y_pred_lengths[i]], y[i, :y_lengths[i]])
             batch_cers += CER
-        batch_cers /= y_pred.shape[1]
 
         self._cer += batch_cers
         self._num_examples += batch_size
@@ -135,8 +133,6 @@ class WordErrorRate(Metric):
         y = y.squeeze(-1)
         batch_size = y_pred.size(0)
 
-        batch_cers = 0
-
         y_pred_lengths = []
         for sample in y_pred.tolist():
             try:
@@ -157,20 +153,19 @@ class WordErrorRate(Metric):
         for i in range(batch_size):
             WER = self.wer(y_pred[i, :y_pred_lengths[i]], y[i, :y_lengths[i]])
             wers += WER
-        wers /= y_pred.shape[1]
 
         self._wer += wers
         self._num_examples += batch_size
 
-    @sync_all_reduce("_sum_of_squared_errors", "_num_examples")
+    @sync_all_reduce("_wer", "_num_examples")
     def compute(self):
         if self._num_examples == 0:
             raise NotComputableError('MeanSquaredError must have at least one example before it can be computed.')
         return self._wer / self._num_examples
 
 if __name__ == '__main__':
-    a = torch.LongTensor(list(map(ord,'Loi'))).unsqueeze(-1)
-    b = torch.LongTensor(list(map(ord,'loi'))).unsqueeze(-1)
+    a = torch.LongTensor(list(map(ord,'Loi')))
+    b = torch.LongTensor(list(map(ord,'loi')))
     cer = CharacterErrorRate.cer(None, a,b)
     wer = WordErrorRate.wer(None, a,b)
     print(wer, cer)
