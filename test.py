@@ -11,57 +11,12 @@ from torchvision import transforms
 from data import get_data_loader, get_vocab, EOS_CHAR
 from model import DenseNetFE, Seq2Seq, Transformer
 from utils import ScaleImageByHeight
+from metrics import CharacterErrorRate, WordErrorRate
 
-def inference(model, data_loader, vocab, device):
-    model.eval()
-    CE = 0
-    WE = 0
-    total_words = 0
-    total_characters = 0
-    with torch.no_grad(), tqdm(data_loader) as t:
-        for batch_index, batch in enumerate(t):
-            imgs, targets, targets_onehot, lengths = batch
+from ignite.engine import Engine, Events
+from ignite.metrics import RunningAverage
 
-            imgs = imgs.to(device)
-            targets = targets.to(device)
-            targets_onehot = targets_onehot.to(device)
-
-            outputs, _ = model.greedy(imgs, targets_onehot[[0]])
-
-            index = outputs.topk(1, -1)[1]
-            predicts = index.squeeze(-1).transpose(0, 1) # [B, T]
-            predicts_str = []
-            for predict in predicts:
-                s = [vocab.int2char[x.item()] for x in predict]
-                try:
-                    eos_index = s.index(EOS_CHAR)
-                except ValueError:
-                    eos_index = None
-                predicts_str.append(s[:eos_index])
-
-            targets_str = []
-            for target in targets.transpose(0, 1).squeeze():
-                s = [vocab.int2char[x.item()] for x in target]
-                try:
-                    eos_index = s.index(EOS_CHAR)
-                except ValueError:
-                    eos_index = None
-                targets_str.append(s[1:eos_index])
-            assert len(predicts_str) == len(targets_str)
-
-            for i, pair in enumerate(zip(predicts_str, targets_str)):
-                CE += ed.distance(pair[0], pair[1])
-                WE += 0 if pair[0] == pair[1] else 1
-                if pair[0] != pair[1] and args.verbose:
-                    tqdm.write('Batch {}, pair {}: {}/{}'.format(batch_index, i, ''.join(pair[0]), ''.join(pair[1])))
-
-            batch_size = len(imgs)
-            total_characters += lengths.sum().item() - batch_size*2 # do not count SOS and EOS in total characters
-            total_words += batch_size
-
-            t.set_postfix(CE=CE, CER=CE/total_characters, WE=WE, WER=WE/total_words)
-
-    return CE, CE/total_characters, WE, WE/total_words
+from torch.utils.tensorboard import SummaryWriter
 
 def main(args):
     device = f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu'
@@ -79,8 +34,7 @@ def main(args):
     if args.model == 'tf':
         model = Transformer(cnn, vocab.vocab_size, config)
     elif args.model == 's2s':
-        # model = Seq2Seq(cnn, vocab_size, config['hidden_size'], config['attn_size'])
-        pass
+        model = Seq2Seq(cnn, vocab.vocab_size, config['hidden_size'], config['attn_size'])
     else:
         raise ValueError('model should be "tf" or "s2s"')
     model.to(device)
@@ -88,16 +42,56 @@ def main(args):
     model.load_state_dict(checkpoint['model'])
 
     test_transform = transforms.Compose([
-        transforms.Grayscale(3),
         ScaleImageByHeight(config['scale_height']),
+        HandcraftFeature() if config['use_handcraft'] else transforms.Grayscale(3),
         transforms.ToTensor(),
     ])
 
     test_loader = get_data_loader(config['dataset'], 'test', config['batch_size'],
-                                  test_transform, vocab)
+                                  test_transform, vocab, debug=args.debug)
 
-    CE,CER,WE,WER = inference(model, test_loader, vocab, device)
-    print('CE = {}, CER = {}, WE = {}, WER = {}'.format(CE, CER, WE, WER))
+    def step_val(engine, batch):
+        model.eval()
+        with torch.no_grad():
+            imgs, targets, targets_onehot, lengths = batch
+
+            imgs = imgs.to(device)
+            targets = targets.to(device)
+            targets_onehot = targets_onehot.to(device)
+
+            outputs, _ = model.greedy(imgs, targets_onehot[[0]])
+            outputs = outputs.topk(1,-1)[1]
+
+            return outputs, targets
+
+    evaluator = Engine(step_val)
+    RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR])).attach(evaluator, 'running_cer')
+    RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR])).attach(evaluator, 'running_wer')
+
+
+
+    @evaluator.on(Events.STARTED)
+    def start_eval(engine):
+        print(config)
+        print('='*60)
+        print(model)
+        print('Start evaluating..')
+    @evaluator.on(Events.ITERATION_COMPLETED(every=args.log_interval))
+    def log_terminal(engine):
+        print('Iter {}/{} - CER: {:.3f} WER: {:.3f}'.format(engine.state.iteration, len(test_loader), engine.state.metrics['running_cer'], engine.state.metrics['running_wer']))
+
+    @evaluator.on(Events.COMPLETED)
+    def finish_eval(engine):
+        print('Evaluate Complete. Write down to tensorboard...')
+        metrics = {
+            'hparam/CER': engine.state.metrics['running_cer'],
+            'hparam/WER': engine.state.metrics['running_wer'],
+        }
+        writer = SummaryWriter()
+        writer.add_hparams(config, metrics)
+        writer.close()
+
+    evaluator.run(test_loader)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -105,7 +99,8 @@ if __name__ == '__main__':
     parser.add_argument('weight', type=str, help='Path to weight of model')
     parser.add_argument('--verbose', action='store_true', default=False)
     parser.add_argument('--gpu-id', type=int, default=0)
-    parser.add_argument('--one-shot', action='store_true', default=False)
+    parser.add_argument('--log-interval', type=int, default=50)
+    parser.add_argument('--debug', action='store_true', default=False)
     args = parser.parse_args()
 
     main(args)

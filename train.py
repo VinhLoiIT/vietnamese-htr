@@ -11,7 +11,7 @@ from ignite.metrics import Accuracy, Loss, RunningAverage
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
-from data import get_data_loader, get_vocab, PAD_CHAR
+from data import get_data_loader, get_vocab, PAD_CHAR, EOS_CHAR
 from model import Seq2Seq, Transformer, DenseNetFE
 from utils import ScaleImageByHeight, HandcraftFeature
 from metrics import CharacterErrorRate, WordErrorRate
@@ -185,21 +185,23 @@ def main(args):
             targets = targets.to(device)
             targets_onehot = targets_onehot.to(device)
 
-            outputs, _ = model.greedy(imgs, targets_onehot[[0]])
+            logits = model(imgs, targets_onehot[:-1])
+            outputs, _ = model.greedy(imgs, targets_onehot[[0]], output_weights=False)
+            outputs = outputs.topk(1, -1)[1]
 
-            packed_outputs = pack_padded_sequence(outputs, (lengths - 1).squeeze(-1))
-            packed_targets = pack_padded_sequence(targets[1:].squeeze(-1), (lengths - 1).squeeze(-1))
+            logits = pack_padded_sequence(logits, (lengths - 1).squeeze(-1))[0]
+            packed_targets = pack_padded_sequence(targets[1:].squeeze(-1), (lengths - 1).squeeze(-1))[0]
 
-            return packed_outputs, packed_targets
+            return logits, packed_targets, outputs, targets
 
     trainer = Engine(step_train)
     evaluator = Engine(step_val)
 
     RunningAverage(Loss(criterion)).attach(trainer, 'running_train_loss')
     RunningAverage(Accuracy()).attach(trainer, 'running_train_acc')
-    RunningAverage(Loss(criterion, output_transform=lambda output: (output[0][0], output[1][0]))).attach(evaluator, 'running_val_loss')
-    RunningAverage(CharacterErrorRate()).attach(evaluator, 'running_val_cer')
-    RunningAverage(WordErrorRate()).attach(evaluator, 'running_val_wer')
+    RunningAverage(Loss(criterion, output_transform=lambda output: output[:2])).attach(evaluator, 'running_val_loss')
+    RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR], output_transform=lambda output: output[2:])).attach(evaluator, 'running_val_cer')
+    RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR], output_transform=lambda output: output[2:])).attach(evaluator, 'running_val_wer')
     training_timer = Timer(average=True).attach(trainer)
 
     epoch_train_timer = Timer(True).attach(trainer,

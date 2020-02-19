@@ -12,28 +12,27 @@ __all__ = [
             'WordErrorRate',
             ]
 
-
 class CharacterErrorRate(Metric):
     '''
     Calculates the CharacterErrorRate.
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, batch_first=False):
+    def __init__(self, EOS_int, output_transform=None, batch_first=False):
         super().__init__()
+        self.EOS_int = EOS_int
+        self.output_transform = output_transform
         self.batch_first = batch_first
 
     def cer(self, pred, target):
         '''
         Parameters:
         -----------
-        pred: [T_1,1]
-        target: [T_2,1]
+        pred: [T_1]
+        target: [T_2]
 
         Output:
         float cer
         '''
-        pred = pred.squeeze(-1)
-        target = target.squeeze(-1)
         distance = ed.distance(pred.tolist(), target.tolist())
         return distance / len(target)
 
@@ -44,18 +43,42 @@ class CharacterErrorRate(Metric):
 
     @reinit__is_reduced
     def update(self, output) -> None:
+        if self.output_transform is not None:
+            output = self.output_transform(output)
         y_pred, y = output
-        y_pred, pred_lengths = pad_packed_sequence(y_pred)
-        y, lengths = pad_packed_sequence(y)
-        y_pred = y_pred.topk(1,-1)[1]
+
+        if not self.batch_first:
+            y_pred = y_pred.transpose(0,1) # [B,T_1]
+            y = y.transpose(0,1) # [B,T_2]
+        y_pred = y_pred.squeeze(-1)
+        y = y.squeeze(-1)
+        batch_size = y_pred.size(0)
+
         batch_cers = 0
-        for i in range(len(lengths)):
-            CER = self.cer(y_pred[:lengths[i], i], y[:lengths[i], i])
+
+        y_pred_lengths = []
+        for sample in y_pred.tolist():
+            try:
+                end = sample.index(self.EOS_int)
+            except:
+                end = None
+            y_pred_lengths.append(end)
+
+        y_lengths = []
+        for sample in y.tolist():
+            try:
+                end = sample.index(self.EOS_int)
+            except:
+                end = None
+            y_lengths.append(end)
+
+        for i in range(batch_size):
+            CER = self.cer(y_pred[i, :y_pred_lengths[i]], y[i, :y_lengths[i]])
             batch_cers += CER
         batch_cers /= y_pred.shape[1]
 
         self._cer += batch_cers
-        self._num_examples += len(lengths)
+        self._num_examples += batch_size
 
     @sync_all_reduce("_cer", "_num_examples")
     def compute(self):
@@ -70,8 +93,10 @@ class WordErrorRate(Metric):
     - When recognize at word-level, this metric is (1 - Accuracy)
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, batch_first=False):
+    def __init__(self, EOS_int, output_transform=None, batch_first=False):
         super().__init__()
+        self.EOS_int = EOS_int
+        self.output_transform = output_transform
         self.batch_first = batch_first
 
     def wer(self, pred, target):
@@ -98,18 +123,44 @@ class WordErrorRate(Metric):
 
     @reinit__is_reduced
     def update(self, output) -> None:
+        if self.output_transform is not None:
+            output = self.output_transform(output)
         y_pred, y = output
-        y_pred, pred_lengths = pad_packed_sequence(y_pred)
-        y, lengths = pad_packed_sequence(y)
-        y_pred = y_pred.long()
+
+
+        if not self.batch_first:
+            y_pred = y_pred.transpose(0,1) # [B,T_1]
+            y = y.transpose(0,1) # [B,T_2]
+        y_pred = y_pred.squeeze(-1)
+        y = y.squeeze(-1)
+        batch_size = y_pred.size(0)
+
+        batch_cers = 0
+
+        y_pred_lengths = []
+        for sample in y_pred.tolist():
+            try:
+                end = sample.index(self.EOS_int)
+            except:
+                end = None
+            y_pred_lengths.append(end)
+
+        y_lengths = []
+        for sample in y.tolist():
+            try:
+                end = sample.index(self.EOS_int)
+            except:
+                end = None
+            y_lengths.append(end)
+
         wers = 0
-        for i in range(len(lengths)):
-            wer = self.wer(y_pred[:lengths[i], i], y[:lengths[i], i])
-            wers += wer
+        for i in range(batch_size):
+            WER = self.wer(y_pred[i, :y_pred_lengths[i]], y[i, :y_lengths[i]])
+            wers += WER
         wers /= y_pred.shape[1]
 
         self._wer += wers
-        self._num_examples += len(lengths)
+        self._num_examples += batch_size
 
     @sync_all_reduce("_sum_of_squared_errors", "_num_examples")
     def compute(self):
