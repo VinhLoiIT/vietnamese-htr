@@ -14,6 +14,7 @@ from torchvision import transforms
 from data import get_data_loader, get_vocab, PAD_CHAR
 from model import Seq2Seq, Transformer, DenseNetFE
 from utils import ScaleImageByHeight, HandcraftFeature
+from metrics import CharacterErrorRate, WordErrorRate
 
 from torch.nn.utils.rnn import pack_padded_sequence
 
@@ -186,8 +187,8 @@ def main(args):
 
             outputs, _ = model.greedy(imgs, targets_onehot[[0]])
 
-            packed_outputs = pack_padded_sequence(outputs, (lengths - 1).squeeze(-1))[0]
-            packed_targets = pack_padded_sequence(targets[1:].squeeze(-1), (lengths - 1).squeeze(-1))[0]
+            packed_outputs = pack_padded_sequence(outputs, (lengths - 1).squeeze(-1))
+            packed_targets = pack_padded_sequence(targets[1:].squeeze(-1), (lengths - 1).squeeze(-1))
 
             return packed_outputs, packed_targets
 
@@ -196,10 +197,11 @@ def main(args):
 
     RunningAverage(Loss(criterion)).attach(trainer, 'running_train_loss')
     RunningAverage(Accuracy()).attach(trainer, 'running_train_acc')
-    RunningAverage(Loss(criterion)).attach(evaluator, 'running_val_loss')
-    RunningAverage(Accuracy()).attach(evaluator, 'running_val_acc')
-
+    RunningAverage(Loss(criterion, output_transform=lambda output: (output[0][0], output[1][0]))).attach(evaluator, 'running_val_loss')
+    RunningAverage(CharacterErrorRate()).attach(evaluator, 'running_val_cer')
+    RunningAverage(WordErrorRate()).attach(evaluator, 'running_val_wer')
     training_timer = Timer(average=True).attach(trainer)
+
     epoch_train_timer = Timer(True).attach(trainer,
                                            start=Events.EPOCH_STARTED,
                                            pause=Events.EPOCH_COMPLETED,
@@ -250,16 +252,19 @@ def main(args):
         writer.add_scalar("Validation/Loss",
                           state.metrics['running_val_loss'],
                           engine.state.epoch) # use trainer's state.epoch
-        writer.add_scalar("Validation/Accuracy",
-                          state.metrics['running_val_acc'],
+        writer.add_scalar("Validation/CER",
+                          state.metrics['running_val_cer'],
+                          engine.state.epoch)
+        writer.add_scalar("Validation/WER",
+                          state.metrics['running_val_wer'],
                           engine.state.epoch)
         writer.add_scalar("Validation/Time", validate_timer.value(), engine.state.epoch)
 
     @evaluator.on(Events.ITERATION_COMPLETED(every=args.log_interval))
     def log_validation_terminal(engine):
-        logger.info("Validate - Iter {}/{} - Avg accuracy: {:.3f} Avg loss: {:.3f}"
+        logger.info("Validate - Iter {}/{} - CER: {:.3f} WER: {:.3f} Avg loss: {:.3f}"
               .format(engine.state.iteration, len(val_loader),
-                      engine.state.metrics['running_val_acc'], engine.state.metrics['running_val_loss']))
+                      engine.state.metrics['running_val_cer'], engine.state.metrics['running_val_wer'], engine.state.metrics['running_val_loss']))
 
     @evaluator.on(Events.COMPLETED)
     def update_scheduler(engine):
@@ -273,16 +278,17 @@ def main(args):
             'lr_scheduler': reduce_lr_scheduler.state_dict()
         }
 
+        filename = 'weights_val_loss_{:.3f}_cer_{:.3f}_wer_{:.3f}.pt'.format(engine.state.metrics['running_val_loss'], engine.state.metrics['running_val_cer'], engine.state.metrics['running_val_wer'])
+        torch.save(to_save, os.path.join(CKPT_DIR, filename))
+
         if found_better:
             torch.save(to_save, os.path.join(CKPT_DIR, 'BEST_weights.pt'))
             best_metrics = {
-                'hparam/val_acc': evaluator.state.metrics['running_val_acc'],
+                'hparam/val_CER': evaluator.state.metrics['running_val_cer'],
+                'hparam/val_WER': evaluator.state.metrics['running_val_wer'],
                 'hparam/val_loss': evaluator.state.metrics['running_val_loss'],
                 'hparam/training_time': training_timer.value(),
             }
-        filename = 'weights_val_loss_{:.3f}_val_acc_{:.3f}.pt'.format(engine.state.metrics['running_val_loss'],
-                                                                      engine.state.metrics['running_val_acc'])
-        torch.save(to_save, os.path.join(CKPT_DIR, filename))
 
     trainer.run(train_loader, max_epochs=2 if args.debug else config['max_epochs'])
 
