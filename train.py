@@ -64,7 +64,7 @@ def main(args):
 
     if torch.cuda.device_count() > 1 and args.multi_gpus:
         logger.info("Let's use %d GPUs!", torch.cuda.device_count())
-        model = nn.DataParallel(model, dim=1) # batch dim = 1
+        model = nn.DataParallel(model, dim=0) # batch dim = 0
 
     if args.debug_model:
         logger = logging.getLogger(__name__)
@@ -137,10 +137,10 @@ def main(args):
         targets = targets.to(device)
         targets_onehot = targets_onehot.to(device)
 
-        outputs = model(imgs, targets_onehot[:-1])
+        outputs = model(imgs, targets_onehot[:-1].transpose(0,1))
 
-        packed_outputs = pack_padded_sequence(outputs, (lengths - 1).squeeze(-1))[0]
-        packed_targets = pack_padded_sequence(targets[1:].squeeze(-1), (lengths - 1).squeeze(-1))[0]
+        packed_outputs = pack_padded_sequence(outputs, (lengths - 1).squeeze(-1), batch_first=True)[0]
+        packed_targets = pack_padded_sequence(targets[1:].transpose(0,1).squeeze(-1), (lengths - 1).squeeze(-1), batch_first=True)[0]
 
         loss = criterion(packed_outputs, packed_targets)
         loss.backward()
@@ -158,12 +158,12 @@ def main(args):
             targets = targets.to(device)
             targets_onehot = targets_onehot.to(device)
 
-            logits = model(imgs, targets_onehot[:-1])
-            outputs, _ = model.greedy(imgs, targets_onehot[[0]], output_weights=False)
+            logits = model(imgs, targets_onehot[:-1].transpose(0,1))
+            outputs, _ = model.module.greedy(imgs, targets_onehot[[0]].transpose(0,1), output_weights=False)
             outputs = outputs.topk(1, -1)[1]
 
-            logits = pack_padded_sequence(logits, (lengths - 1).squeeze(-1))[0]
-            packed_targets = pack_padded_sequence(targets[1:].squeeze(-1), (lengths - 1).squeeze(-1))[0]
+            logits = pack_padded_sequence(logits, (lengths - 1).squeeze(-1), batch_first=True)[0]
+            packed_targets = pack_padded_sequence(targets[1:].transpose(0,1).squeeze(-1), (lengths - 1).squeeze(-1), batch_first=True)[0]
 
             return logits, packed_targets, outputs, targets[1:]
 

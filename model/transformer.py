@@ -37,11 +37,11 @@ class Transformer(nn.Module):
         '''
         Inputs:
         :param images: [B,C,H,W]
-        :param targets: Tensor of [L,B,V], which should start with <start> and end with <end>
+        :param targets: Tensor of [B,L,V], which should start with <start> and end with <end>
         Return:
-            - outputs: [L,B,V]
+            - outputs: [B,L,V]
         '''
-        max_length = targets.shape[0]
+        max_length = targets.shape[1]
         batch_size, _, input_image_h, input_image_w = images.size()
 
         # Step 1: CNN Feature Extraction
@@ -56,11 +56,12 @@ class Transformer(nn.Module):
             image_features, _ = self.encoder(image_features, output_weights=False)
 
         # Step 3: Decoder forwarding
-        targets = targets.float()
+        targets = targets.transpose(0,1).float()
         attn_mask = self.generate_subsquence_mask(batch_size, max_length).to(targets.device)
         output, _ = self.decoder(image_features, targets, attn_mask)
         output = self.character_distribution(output)
 
+        output.transpose_(0,1)
         return output
 
     def greedy(self, images, start_input, output_weights=False, max_length=10):
@@ -86,7 +87,7 @@ class Transformer(nn.Module):
             # image_features: [S,B,C']
             # weight_encoder: None or list of **num_layers** tensors of shape [B,S,S]
         # Step 3: Decoder forwarding
-        predicts = start_input.float()
+        predicts = start_input.transpose(0,1).float()
         weights = []
         for t in range(max_length):
             output, weight_decoder = self.decoder(image_features, predicts, output_weights=output_weights)
@@ -101,9 +102,9 @@ class Transformer(nn.Module):
                 weights.append((weight_encoder, weight_decoder))
 
         if output_weights:
-            return predicts[1:], weights
+            return predicts[1:].transpose(0,1), weights
         else:
-            return predicts[1:], None
+            return predicts[1:].transpose(0,1), None
 
 class PositionalEncoding(nn.Module):
 

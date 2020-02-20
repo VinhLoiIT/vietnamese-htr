@@ -37,7 +37,7 @@ class Decoder(nn.Module):
         num_pixels = img_features.size(0)
         batch_size = img_features.size(1)
         max_length = targets.size(0)
-        
+
         targets = targets.float()
         rnn_input = targets[[0]].float() # [1, B, V]
         hidden = self.init_hidden(batch_size).to(img_features.device)
@@ -47,6 +47,7 @@ class Decoder(nn.Module):
 
         for t in range(max_length):
             context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
+            self.rnn.flatten_parameters()
             output, (hidden, cell_state) = self.rnn(torch.cat((rnn_input, context), -1), (hidden, cell_state))
             output = self.character_distribution(output)
 
