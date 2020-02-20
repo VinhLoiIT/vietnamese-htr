@@ -20,48 +20,18 @@ from torch.nn.utils.rnn import pack_padded_sequence
 
 import logging
 
+def load_config(config_path):
+    import yaml
+    with open(config_path, 'r') as stream:
+        try:
+            config = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
+    return config
+
 def main(args):
-    config = {
-        # Common
-        'dataset': 'vnondb', # Should be one of 'vnondb', 'rimes', 'iam'
-        'cnn': 'densenet', # maybe other CNN # TODO: future implement CNN
-        'optimizer': 'RMSprop', # Should be one of 'adam', 'RMSprop'
-        'batch_size': 32,
-        'scale_height': 128,
-        'attn_size': 256,
-        'max_length': 10,
-        'use_handcraft': False, # Use handcraft features as input instead of Grayscale(3)
 
-        'n_epochs_decrease_lr': 5,
-        'start_learning_rate': 1e-5,  # NOTE: paper start with 1e-8
-        'end_learning_rate': 1e-11,
-        'max_epochs': 50,
-        'weight_decay': 0,
-
-        # Densenet only
-        'depth': 4,
-        'n_blocks': 3,
-        'growth_rate': 96,
-
-        # Seq2Seq only
-        'hidden_size': 256,
-
-        # Transformer only
-        'use_encoder': False,
-        'use_FFNN': False,
-        # 'encoder_attn': 'scale_dot_product',
-        'encoder_attn': 'additive',
-        'decoder_attn': 'additive',
-        'encoder_decoder_attn': 'additive',
-        'direct_additive': False,
-        # 'encoder_decoder_attn': 'scale_dot_product',
-        'encoder_nhead': 1, # should divisible by CNN.n_features
-        'decoder_nhead': 1, # should divisible by vocab_size
-        'encoder_decoder_nhead': 1, # should divisible by attn_size
-        'encoder_nlayers': 1,
-        'decoder_nlayers': 1,
-    }
-
+    config = load_config(args.config_path)
     best_metrics = dict()
 
     vocab = get_vocab(config['dataset'])
@@ -77,15 +47,18 @@ def main(args):
         config = checkpoint['config']
 
     if config['cnn'] == 'densenet':
-        cnn = DenseNetFE(config['depth'],
-                        config['n_blocks'],
-                        config['growth_rate'])
+        cnn_config = config['densenet']
+        cnn = DenseNetFE(cnn_config['depth'],
+                         cnn_config['n_blocks'],
+                         cnn_config['growth_rate'])
     else:
         raise ValueError('Unknow CNN {}'.format(config['cnn']))
     if args.model == 'tf':
-        model = Transformer(cnn, vocab.vocab_size, config)
+        model_config = config['tf']
+        model = Transformer(cnn, vocab.vocab_size, model_config)
     elif args.model == 's2s':
-        model = Seq2Seq(cnn, vocab.vocab_size, config['hidden_size'], config['attn_size'])
+        model_config = config['s2s']
+        model = Seq2Seq(cnn, vocab.vocab_size, model_config['hidden_size'], model_config['attn_size'])
     else:
         raise ValueError('model should be "tf" or "s2s"')
 
@@ -285,16 +258,17 @@ def main(args):
 
         if found_better:
             torch.save(to_save, os.path.join(CKPT_DIR, 'BEST_weights.pt'))
-            best_metrics = {
+            best_metrics.update({
                 'hparam/val_CER': evaluator.state.metrics['running_val_cer'],
                 'hparam/val_WER': evaluator.state.metrics['running_val_wer'],
                 'hparam/val_loss': evaluator.state.metrics['running_val_loss'],
                 'hparam/training_time': training_timer.value(),
-            }
+            })
 
     trainer.run(train_loader, max_epochs=2 if args.debug else config['max_epochs'])
 
-    writer.add_hparams(config, best_metrics)
+    print(best_metrics)
+    writer.add_hparams(model_config, best_metrics)
 
     writer.close()
 
@@ -303,6 +277,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('model', choices=['tf', 's2s'])
+    parser.add_argument('config_path', type=str)
     parser.add_argument('--comment', type=str)
     parser.add_argument('--debug', action='store_true', default=False)
     parser.add_argument('--debug-model', action='store_true', default=False)

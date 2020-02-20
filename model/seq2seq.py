@@ -29,7 +29,7 @@ class Seq2Seq(nn.Module):
         predicts = self.decoder(image_features, target)
         return predicts
 
-    def greedy(self, image, start_input, max_length=10, output_weight=False):
+    def greedy(self, image, start_input, max_length=10, output_weights=False):
         batch_size, _, input_image_h, input_image_w = image.size()
         image_features = self.cnn(image) # [B, C', H', W']
         feature_image_h, feature_image_w = image_features.size()[-2:]
@@ -37,8 +37,8 @@ class Seq2Seq(nn.Module):
         image_features = image_features.permute(2,0,1) # [S, B, C']
 
         predicts, weights = self.decoder.greedy(image_features, start_input, max_length=max_length)
-        
-        if output_weight:
+
+        if output_weights:
             # TODO: scale weights to fit image size and return
             return predicts, weights
         else:
