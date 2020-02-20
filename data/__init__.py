@@ -26,8 +26,13 @@ def _get_dataset_partition_helper(dataset, partition, transform):
             return RIMES('./data/RIMES/validationsnippets_icdar/testdataset_ICDAR', './data/RIMES/ground_truth_validation_icdar2011.txt', transform)
         return None
     elif dataset == 'iam':
-        # TODO: add IAM dataset
-        raise NotImplementedError()
+        if partition == 'test':
+            return IAM('./data/IAM/splits/test.uttlist', transform)
+        if partition == 'train':
+            return IAM('./data/IAM/splits/train.uttlist', transform)
+        if partition == 'val':
+            return IAM('./data/IAM/splits/validation.uttlist', transform)
+        return None
     
     return None
 

@@ -1,8 +1,8 @@
-dataset: vnondb
+dataset: iam
 cnn: densenet
 optimizer: RMSprop
 batch_size: 32
-scale_height: 128
+scale_height: 64
 max_length: 10
 use_handcraft: False
 
