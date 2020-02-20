@@ -259,16 +259,17 @@ def main(args):
         if found_better:
             torch.save(to_save, os.path.join(CKPT_DIR, 'BEST_weights.pt'))
             best_metrics.update({
-                'hparam/val_CER': evaluator.state.metrics['running_val_cer'],
-                'hparam/val_WER': evaluator.state.metrics['running_val_wer'],
-                'hparam/val_loss': evaluator.state.metrics['running_val_loss'],
-                'hparam/training_time': training_timer.value(),
+                'metric/val_CER': evaluator.state.metrics['running_val_cer'],
+                'metric/val_WER': evaluator.state.metrics['running_val_wer'],
+                'metric/val_loss': evaluator.state.metrics['running_val_loss'],
+                'metric/training_time': training_timer.value(),
             })
 
     trainer.run(train_loader, max_epochs=2 if args.debug else config['max_epochs'])
 
     print(best_metrics)
     writer.add_hparams(model_config, best_metrics)
+    writer.flush()
 
     writer.close()
 
