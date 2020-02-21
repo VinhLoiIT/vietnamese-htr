@@ -29,11 +29,26 @@ def load_config(config_path):
             print(exc)
     return config
 
-def main(args):
+def flatten_config(config, prefix=''):
+    flatten = {}
+    for key, val in config.items():
+        if isinstance(val, dict):
+            sub_flatten = flatten_config(val, prefix=str(key)+'_')
+            flatten.update(sub_flatten)
+        else:
+            flatten.update({prefix+str(key): val})
+    return flatten
 
-    config = load_config(args.config_path)
+def main(args):
+    if args.resume:
+        logger.info('Resuming from {}'.format(args.resume))
+        checkpoint = torch.load(args.resume, map_location=device)
+        root_config = checkpoint['config']
+    else:
+        root_config = load_config(args.config_path)
     best_metrics = dict()
 
+    config = root_config['common']
     vocab = get_vocab(config['dataset'])
     logger = logging.getLogger('MainTraining')
 
@@ -41,28 +56,25 @@ def main(args):
     logger.info('Device = {}'.format(device))
     logger.info('Vocab size = {}'.format(vocab.vocab_size))
 
-    if args.resume:
-        logger.info('Resuming from {}'.format(args.resume))
-        checkpoint = torch.load(args.resume, map_location=device)
-        config = checkpoint['config']
 
     if config['cnn'] == 'densenet':
-        cnn_config = config['densenet']
+        cnn_config = root_config['densenet']
         cnn = DenseNetFE(cnn_config['depth'],
                          cnn_config['n_blocks'],
                          cnn_config['growth_rate'])
     else:
         raise ValueError('Unknow CNN {}'.format(config['cnn']))
     if args.model == 'tf':
-        model_config = config['tf']
+        model_config = root_config['tf']
         model = Transformer(cnn, vocab.vocab_size, model_config)
     elif args.model == 's2s':
-        model_config = config['s2s']
+        model_config = root_config['s2s']
         model = Seq2Seq(cnn, vocab.vocab_size, model_config['hidden_size'], model_config['attn_size'])
     else:
         raise ValueError('model should be "tf" or "s2s"')
 
-    if torch.cuda.device_count() > 1 and args.multi_gpus:
+    multi_gpus = torch.cuda.device_count() > 1 and args.multi_gpus
+    if multi_gpus:
         logger.info("Let's use %d GPUs!", torch.cuda.device_count())
         model = nn.DataParallel(model, dim=0) # batch dim = 0
 
@@ -159,7 +171,10 @@ def main(args):
             targets_onehot = targets_onehot.to(device)
 
             logits = model(imgs, targets_onehot[:-1].transpose(0,1))
-            outputs, _ = model.module.greedy(imgs, targets_onehot[[0]].transpose(0,1), output_weights=False)
+            if multi_gpus:
+                outputs, _ = model.module.greedy(imgs, targets_onehot[[0]].transpose(0,1), output_weights=False)
+            else:
+                outputs, _ = model.greedy(imgs, targets_onehot[[0]].transpose(0,1), output_weights=False)
             outputs = outputs.topk(1, -1)[1]
 
             logits = pack_padded_sequence(logits, (lengths - 1).squeeze(-1), batch_first=True)[0]
@@ -188,7 +203,7 @@ def main(args):
     @trainer.on(Events.STARTED)
     def start_training(engine):
         logger.info('='*60)
-        logger.info(config)
+        logger.info(flatten_config(root_config))
         logger.info('='*60)
         logger.info(model)
         logger.info('='*60)
@@ -239,7 +254,9 @@ def main(args):
     def log_validation_terminal(engine):
         logger.info("Validate - Iter {}/{} - CER: {:.3f} WER: {:.3f} Avg loss: {:.3f}"
               .format(engine.state.iteration, len(val_loader),
-                      engine.state.metrics['running_val_cer'], engine.state.metrics['running_val_wer'], engine.state.metrics['running_val_loss']))
+                      engine.state.metrics['running_val_cer'],
+                      engine.state.metrics['running_val_wer'],
+                      engine.state.metrics['running_val_loss']))
 
     @evaluator.on(Events.COMPLETED)
     def update_scheduler(engine):
@@ -247,7 +264,7 @@ def main(args):
         reduce_lr_scheduler.step(engine.state.metrics['running_val_loss'])
 
         to_save = {
-            'config': config,
+            'config': root_config,
             'model': model.state_dict(),
             'optimizer': optimizer.state_dict(),
             'lr_scheduler': reduce_lr_scheduler.state_dict()
@@ -268,7 +285,7 @@ def main(args):
     trainer.run(train_loader, max_epochs=2 if args.debug else config['max_epochs'])
 
     print(best_metrics)
-    writer.add_hparams(model_config, best_metrics)
+    writer.add_hparams(flatten_config(config), best_metrics)
     writer.flush()
 
     writer.close()

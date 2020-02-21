@@ -3,7 +3,7 @@ common:
     cnn: densenet
     optimizer: RMSprop
     batch_size: 32
-    scale_height: 96
+    scale_height: 96 
     max_length: 10
     use_handcraft: False
 
@@ -20,15 +20,15 @@ densenet:
 
 tf:
     attn_size: 256
-    use_encoder: False
-    use_FFNN: False
+    use_encoder: True
+    use_FFNN: True
     encoder_attn: additive
     decoder_attn: additive
     encoder_decoder_attn: additive
     direct_additive: False
-    encoder_nhead: 1
-    decoder_nhead: 1
-    encoder_decoder_nhead: 1
+    encoder_nhead: 8
+    decoder_nhead: 10
+    encoder_decoder_nhead: 8
     encoder_nlayers: 1
     decoder_nlayers: 1
 
