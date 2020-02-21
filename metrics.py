@@ -72,7 +72,8 @@ class CharacterErrorRate(Metric):
 
         batch_cers = 0
         for i in range(batch_size):
-            CER = self.cer(y_pred[i, :y_pred_lengths[i]], y[i, :y_lengths[i]])
+#             print('pred: ', y_pred[i, :y_pred_lengths[i]], '- target: ', y[i, 1:y_lengths[i]])
+            CER = self.cer(y_pred[i, :y_pred_lengths[i]], y[i, 1:y_lengths[i]]) ### [1:len] -> ignore start, end
             batch_cers += CER
 
         self._cer += batch_cers
@@ -151,7 +152,7 @@ class WordErrorRate(Metric):
 
         wers = 0
         for i in range(batch_size):
-            WER = self.wer(y_pred[i, :y_pred_lengths[i]], y[i, :y_lengths[i]])
+            WER = self.wer(y_pred[i, :y_pred_lengths[i]], y[i, 1:y_lengths[i]]) ### [1:len] -> ignore start, end
             wers += WER
 
         self._wer += wers
@@ -165,7 +166,7 @@ class WordErrorRate(Metric):
 
 if __name__ == '__main__':
     a = torch.LongTensor(list(map(ord,'Loi')))
-    b = torch.LongTensor(list(map(ord,'loi')))
+    b = torch.LongTensor(list(map(ord,'Loi')))
     cer = CharacterErrorRate.cer(None, a,b)
     wer = WordErrorRate.wer(None, a,b)
     print(wer, cer)

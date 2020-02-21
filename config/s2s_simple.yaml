@@ -1,4 +1,4 @@
-dataset: iam
+dataset: vnondb
 cnn: densenet
 optimizer: RMSprop
 batch_size: 32

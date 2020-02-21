@@ -25,16 +25,16 @@ def main(args):
     checkpoint = torch.load(args.weight, map_location=device)
     config = checkpoint['config']
 
-    cnn = DenseNetFE(config['depth'],
-                     config['n_blocks'],
-                     config['growth_rate'])
+    cnn = DenseNetFE(config['densenet']['depth'],
+                     config['densenet']['n_blocks'],
+                     config['densenet']['growth_rate'])
 
     vocab = get_vocab(config['dataset'])
 
     if args.model == 'tf':
         model = Transformer(cnn, vocab.vocab_size, config)
     elif args.model == 's2s':
-        model = Seq2Seq(cnn, vocab.vocab_size, config['hidden_size'], config['attn_size'])
+        model = Seq2Seq(cnn, vocab.vocab_size, config['s2s']['hidden_size'], config['s2s']['attn_size'])
     else:
         raise ValueError('model should be "tf" or "s2s"')
     model.to(device)
@@ -83,12 +83,13 @@ def main(args):
     @evaluator.on(Events.COMPLETED)
     def finish_eval(engine):
         print('Evaluate Complete. Write down to tensorboard...')
+        print('Iter {}/{} - CER: {:.3f} WER: {:.3f}'.format(engine.state.iteration, len(test_loader), engine.state.metrics['running_cer'], engine.state.metrics['running_wer']))
         metrics = {
             'hparam/CER': engine.state.metrics['running_cer'],
             'hparam/WER': engine.state.metrics['running_wer'],
         }
         writer = SummaryWriter()
-        writer.add_hparams(config, metrics)
+#         writer.add_hparams(config, metrics) ### Cái này hình như do cái config - 'value should be one of int, float, str, bool, or torch.Tensor'. Trong file config có cặp key và value, value của densenet và s2s nó không phải nên bị lỗi á.
         writer.close()
 
     evaluator.run(test_loader)
