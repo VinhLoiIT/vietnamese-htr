@@ -10,7 +10,7 @@ from torchvision import transforms
 
 from data import get_data_loader, get_vocab, EOS_CHAR
 from model import DenseNetFE, Seq2Seq, Transformer
-from utils import ScaleImageByHeight
+from utils import ScaleImageByHeight, HandcraftFeature
 from metrics import CharacterErrorRate, WordErrorRate
 
 from ignite.engine import Engine, Events
@@ -62,7 +62,7 @@ def main(args):
             outputs, _ = model.greedy(imgs, targets_onehot[[0]])
             outputs = outputs.topk(1,-1)[1]
 
-            return outputs, targets
+            return outputs, targets[1:]
 
     evaluator = Engine(step_val)
     RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR])).attach(evaluator, 'running_cer')
@@ -76,6 +76,7 @@ def main(args):
         print('='*60)
         print(model)
         print('Start evaluating..')
+
     @evaluator.on(Events.ITERATION_COMPLETED(every=args.log_interval))
     def log_terminal(engine):
         print('Iter {}/{} - CER: {:.3f} WER: {:.3f}'.format(engine.state.iteration, len(test_loader), engine.state.metrics['running_cer'], engine.state.metrics['running_wer']))

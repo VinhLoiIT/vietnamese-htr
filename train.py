@@ -165,7 +165,7 @@ def main(args):
             logits = pack_padded_sequence(logits, (lengths - 1).squeeze(-1), batch_first=True)[0]
             packed_targets = pack_padded_sequence(targets[1:].transpose(0,1).squeeze(-1), (lengths - 1).squeeze(-1), batch_first=True)[0]
 
-            return logits, packed_targets, outputs, targets[1:]
+            return logits, packed_targets, outputs, targets[1:].transpose(0,1)
 
     trainer = Engine(step_train)
     evaluator = Engine(step_val)
@@ -173,8 +173,8 @@ def main(args):
     RunningAverage(Loss(criterion)).attach(trainer, 'running_train_loss')
     RunningAverage(Accuracy()).attach(trainer, 'running_train_acc')
     RunningAverage(Loss(criterion, output_transform=lambda output: output[:2])).attach(evaluator, 'running_val_loss')
-    RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR], output_transform=lambda output: output[2:])).attach(evaluator, 'running_val_cer')
-    RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR], output_transform=lambda output: output[2:])).attach(evaluator, 'running_val_wer')
+    RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR], batch_first=True, output_transform=lambda output: output[2:])).attach(evaluator, 'running_val_cer')
+    RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR], batch_first=True, output_transform=lambda output: output[2:])).attach(evaluator, 'running_val_wer')
     training_timer = Timer(average=True).attach(trainer)
 
     epoch_train_timer = Timer(True).attach(trainer,

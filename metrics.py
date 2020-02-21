@@ -3,6 +3,7 @@ from torch.nn.utils.rnn import pad_packed_sequence
 
 from ignite.exceptions import NotComputableError
 from ignite.metrics.metric import Metric
+from ignite.metrics import RunningAverage
 from ignite.metrics.metric import sync_all_reduce, reinit__is_reduced
 
 import editdistance as ed
@@ -11,6 +12,20 @@ __all__ = [
             'CharacterErrorRate',
             'WordErrorRate',
             ]
+
+def _calc_length(tensor, EOS_int, batch_first=False):
+    if not batch_first:
+        tensor = tensor.transpose(0,1)
+
+    lengths = []
+    for sample in tensor.tolist():
+        try:
+            end = sample.index(EOS_int)
+        except:
+            end = None
+        lengths.append(end)
+    return lengths
+
 
 class CharacterErrorRate(Metric):
     '''
@@ -27,14 +42,23 @@ class CharacterErrorRate(Metric):
         '''
         Parameters:
         -----------
-        pred: [T_1]
-        target: [T_2]
+        pred: [B,T_1]
+        target: [B,T_2]
 
         Output:
         float cer
         '''
-        distance = ed.distance(pred.tolist(), target.tolist())
-        return distance / len(target)
+        assert len(pred) == len(target)
+        batch_size = len(pred)
+        pred_lengths = _calc_length(pred, self.EOS_int, True)
+        target_lengths = _calc_length(target, self.EOS_int, True)
+
+        batch_cers = 0
+        for i, (pred_length, tgt_length) in enumerate(zip(pred_lengths, target_lengths)):
+            distance = ed.distance(pred[i, :pred_length].tolist(), target[i, :tgt_length].tolist())
+            distance = distance / len(target[i, :tgt_length])
+            batch_cers += distance
+        return batch_cers
 
     @reinit__is_reduced
     def reset(self) -> None:
@@ -46,37 +70,14 @@ class CharacterErrorRate(Metric):
         if self.output_transform is not None:
             output = self.output_transform(output)
         y_pred, y = output
-
-        if not self.batch_first:
-            y_pred = y_pred.transpose(0,1) # [B,T_1]
-            y = y.transpose(0,1) # [B,T_2]
         y_pred = y_pred.squeeze(-1)
         y = y.squeeze(-1)
-        batch_size = y_pred.size(0)
+        if not self.batch_first:
+            y_pred = y_pred.transpose(0,1)
+            y = y.transpose(0,1)
+        batch_size = len(y_pred)
 
-        y_pred_lengths = []
-        for sample in y_pred.tolist():
-            try:
-                end = sample.index(self.EOS_int)
-            except:
-                end = None
-            y_pred_lengths.append(end)
-
-        y_lengths = []
-        for sample in y.tolist():
-            try:
-                end = sample.index(self.EOS_int)
-            except:
-                end = None
-            y_lengths.append(end)
-
-        batch_cers = 0
-        for i in range(batch_size):
-#             print('pred: ', y_pred[i, :y_pred_lengths[i]], '- target: ', y[i, 1:y_lengths[i]])
-            CER = self.cer(y_pred[i, :y_pred_lengths[i]], y[i, 1:y_lengths[i]]) ### [1:len] -> ignore start, end
-            batch_cers += CER
-
-        self._cer += batch_cers
+        self._cer += self.cer(y_pred, y)
         self._num_examples += batch_size
 
     @sync_all_reduce("_cer", "_num_examples")
@@ -102,18 +103,22 @@ class WordErrorRate(Metric):
         '''
         Parameters:
         -----------
-        pred: [T_1,1]
-        target: [T_2,1]
+        pred: [B,T_1]
+        target: [B,T_2]
 
         Output:
         float wer
         '''
-        pred = pred.squeeze(-1)
-        target = target.squeeze(-1)
-        if torch.equal(pred, target):
-            return 0
-        else:
-            return 1
+        assert len(pred) == len(target), "Batch size must match. pred = {}, target = {}".format(len(pred), len(target))
+        batch_size = len(pred)
+        pred_lengths = _calc_length(pred, self.EOS_int, True)
+        target_lengths = _calc_length(target, self.EOS_int, True)
+
+        batch_wers = 0
+        for i, (pred_length, tgt_length) in enumerate(zip(pred_lengths, target_lengths)):
+            distance = 0 if torch.equal(pred[i, :pred_length], target[i, :tgt_length]) else 1
+            batch_wers += distance
+        return batch_wers
 
     @reinit__is_reduced
     def reset(self) -> None:
@@ -125,48 +130,69 @@ class WordErrorRate(Metric):
         if self.output_transform is not None:
             output = self.output_transform(output)
         y_pred, y = output
-
+        y_pred = y_pred.squeeze(-1)
+        y = y.squeeze(-1)
 
         if not self.batch_first:
             y_pred = y_pred.transpose(0,1) # [B,T_1]
             y = y.transpose(0,1) # [B,T_2]
-        y_pred = y_pred.squeeze(-1)
-        y = y.squeeze(-1)
         batch_size = y_pred.size(0)
 
-        y_pred_lengths = []
-        for sample in y_pred.tolist():
-            try:
-                end = sample.index(self.EOS_int)
-            except:
-                end = None
-            y_pred_lengths.append(end)
-
-        y_lengths = []
-        for sample in y.tolist():
-            try:
-                end = sample.index(self.EOS_int)
-            except:
-                end = None
-            y_lengths.append(end)
-
-        wers = 0
-        for i in range(batch_size):
-            WER = self.wer(y_pred[i, :y_pred_lengths[i]], y[i, 1:y_lengths[i]]) ### [1:len] -> ignore start, end
-            wers += WER
-
-        self._wer += wers
+        self._wer += self.wer(y_pred, y)
         self._num_examples += batch_size
 
     @sync_all_reduce("_wer", "_num_examples")
     def compute(self):
         if self._num_examples == 0:
-            raise NotComputableError('MeanSquaredError must have at least one example before it can be computed.')
+            raise NotComputableError('WordErrorRate must have at least one example before it can be computed.')
         return self._wer / self._num_examples
 
 if __name__ == '__main__':
-    a = torch.LongTensor(list(map(ord,'Loi')))
-    b = torch.LongTensor(list(map(ord,'Loi')))
-    cer = CharacterErrorRate.cer(None, a,b)
-    wer = WordErrorRate.wer(None, a,b)
-    print(wer, cer)
+    pred = [
+        'abc',
+        'bc',
+        'yes',
+        'defg',
+    ]
+    tgt = [
+        'bc',
+        'bcd',
+        'yes',
+        'de',
+    ]
+    EOS = 'z'
+    assert len(pred) == len(tgt)
+    max_length_pred = max([len(text) for text in pred])
+    max_length_tgt = max([len(text) for text in tgt])
+    batch_size = len(pred)
+    vocab_size = len(set(pred+tgt+[EOS]))
+    pred = [list(text) + [EOS]*(max_length_pred + 1 - len(text)) for text in pred]
+    tgt = [list(text) + [EOS]*(max_length_tgt + 1 - len(text)) for text in tgt]
+    print('pred', pred)
+    print('tgt', tgt)
+    a = torch.LongTensor([list(map(ord, sample)) for sample in pred])
+    b = torch.LongTensor([list(map(ord, sample)) for sample in tgt])
+    print('a', a)
+    print('b', b)
+
+    cer = CharacterErrorRate(ord(EOS), batch_first=True)
+    wer = WordErrorRate(ord(EOS), batch_first=True)
+
+    cer.update((a,b))
+    wer.update((a,b))
+
+    _cer = cer.compute()
+    _wer = wer.compute()
+    print(_wer, _cer)
+    assert _cer == ((1/2 + 1/3 + 0/3 + 2/2)/4)
+    assert _wer == 3/4
+
+    cer.update((a[:-1],b[:-1]))
+    wer.update((a[:-1],b[:-1]))
+
+    _cer = cer.compute()
+    _wer = wer.compute()
+    print(_wer, _cer)
+    assert _cer == ((1/2 + 1/3 + 0/3 + 2/2 + 1/2 + 1/3 + 0/3)/7)
+    assert _wer == 5/7
+    print('OK!')
