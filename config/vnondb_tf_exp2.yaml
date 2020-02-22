@@ -2,7 +2,7 @@ common:
     dataset: vnondb
     cnn: densenet
     optimizer: RMSprop
-    batch_size: 32
+    batch_size: 16
     scale_height: 96 
     max_length: 10
     use_handcraft: False
