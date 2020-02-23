@@ -51,7 +51,7 @@ def main(args):
         transforms.ToTensor(),
     ])
 
-    test_loader = get_data_loader(config['common']['dataset'], 'test', config['common']['batch_size'],
+    test_loader = get_data_loader(config['common']['dataset'], args.parition, config['common']['batch_size'],
                                   test_transform, vocab, debug=args.debug)
 
     def step_val(engine, batch):
@@ -101,6 +101,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('model', choices=['tf', 's2s'])
     parser.add_argument('weight', type=str, help='Path to weight of model')
+    parser.add_argument('--beamsearch', action='store_true', default=False)
+    parser.add_argument('--parition', type=str, choices=['train','val','test'], default='val')
     parser.add_argument('--verbose', action='store_true', default=False)
     parser.add_argument('--gpu-id', type=int, default=0)
     parser.add_argument('--log-interval', type=int, default=50)
