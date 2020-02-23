@@ -63,14 +63,14 @@ def main(args):
             targets = targets.to(device)
             targets_onehot = targets_onehot.to(device)
 
-            outputs, _ = model.greedy(imgs, targets_onehot[[0]])
+            outputs, _ = model.greedy(imgs, targets_onehot[[0]].transpose(0,1))
             outputs = outputs.topk(1,-1)[1]
 
-            return outputs, targets[1:]
+            return outputs, targets[1:].transpose(0,1)
 
     evaluator = Engine(step_val)
-    RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR])).attach(evaluator, 'running_cer')
-    RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR])).attach(evaluator, 'running_wer')
+    RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR], batch_first=True)).attach(evaluator, 'running_cer')
+    RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR], batch_first=True)).attach(evaluator, 'running_wer')
 
     @evaluator.on(Events.STARTED)
     def start_eval(engine):
