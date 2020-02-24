@@ -15,11 +15,13 @@ class Decoder(nn.Module):
         self.attn_size = attn_size
 
         self.rnn = nn.LSTM(
-            input_size=self.vocab_size+self.feature_size,
+            input_size=self.vocab_size+self.attn_size,
             hidden_size=self.hidden_size,
         )
 
-        self.attention = get_attention(attention, feature_size, hidden_size, attn_size)
+        self.Hc = nn.Linear(hidden_size, attn_size)
+        self.Ic = nn.Linear(feature_size, attn_size)
+        self.attention = get_attention(attention, attn_size)
 
         self.character_distribution = nn.Linear(self.hidden_size, self.vocab_size)
 
@@ -46,7 +48,9 @@ class Decoder(nn.Module):
         outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
 
         for t in range(max_length):
-            context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
+            attn_hidden = self.Hc(hidden)
+            attn_img = self.Ic(img_features)
+            context, weight = self.attention(attn_hidden, attn_img, attn_img) # [1, B, C], [num_pixels, B, 1]
             self.rnn.flatten_parameters()
             output, (hidden, cell_state) = self.rnn(torch.cat((rnn_input, context), -1), (hidden, cell_state))
             output = self.character_distribution(output)
@@ -69,13 +73,15 @@ class Decoder(nn.Module):
 
         hidden = self.init_hidden(batch_size).to(img_features.device)
         cell_state = self.init_hidden(batch_size).to(img_features.device)
-        
+
         outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
-        weights = torch.zeros(max_length, batch_size, num_pixels, device=img_features.device) 
+        weights = torch.zeros(max_length, batch_size, num_pixels, device=img_features.device)
 
         # pdb.set_trace()
         for t in range(max_length):
-            context, weight = self.attention(hidden, img_features, output_weights=True) # [B, 1, num_pixels]
+            attn_hidden = self.Hc(hidden)
+            attn_img = self.Ic(img_features)
+            context, weight = self.attention(attn_hidden, attn_img, attn_img, output_weights=True) # [B, 1, num_pixels]
 
             rnn_input = torch.cat((rnn_input, context), -1)
 
@@ -88,7 +94,7 @@ class Decoder(nn.Module):
             rnn_input = output
 
         return outputs, weights
-    
+
     def beamsearch(self, img_features, start_input, max_length=10, beam_size=3):
         num_pixels = img_features.size(0)
         batch_size = img_features.size(1)

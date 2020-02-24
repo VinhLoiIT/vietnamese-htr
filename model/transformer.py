@@ -5,7 +5,7 @@ import copy
 import math
 import random
 
-from .attention import get_attention
+from .attention import *
 
 class Transformer(nn.Module):
     def __init__(self, cnn, vocab_size, config):
@@ -169,16 +169,11 @@ class TransformerDecoderLayer(nn.Module):
         '''
         super(TransformerDecoderLayer, self).__init__()
 
-        self.self_attn = get_attention(decoder_attn, vocab_size, vocab_size, vocab_size, nhead_vocab)
+        self.self_attn = get_attention(decoder_attn, vocab_size, nhead_vocab)
 
-        if direct_additive:
-            self._convert_dim = False
-            self.encoder_decoder_attn = get_attention(encoder_decoder_attn, cnn_features, vocab_size, attn_size, 1)
-        else:
-            self._convert_dim = True
-            self.Wc = nn.Linear(cnn_features, attn_size)
-            self.Uc = nn.Linear(vocab_size, attn_size)
-            self.encoder_decoder_attn = get_attention(encoder_decoder_attn, attn_size, attn_size, attn_size, nhead_attn)
+        self.Ic = nn.Linear(cnn_features, attn_size)
+        self.Vc = nn.Linear(vocab_size, attn_size)
+        self.encoder_decoder_attn = get_attention(encoder_decoder_attn, attn_size, nhead_attn)
 
         self.norm1 = nn.LayerNorm(vocab_size)
         self.dropout1 = nn.Dropout(dropout)
@@ -197,15 +192,14 @@ class TransformerDecoderLayer(nn.Module):
         self.attn_size = attn_size
 
     def forward(self, image_features, tgt, attn_mask=None, output_weights=False):
-        tgt2, weight_text = self.self_attn(tgt, tgt, attn_mask, output_weights)
+        tgt2, weight_text = self.self_attn(tgt, tgt, tgt, attn_mask, output_weights)
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
 
-        if self._convert_dim:
-            tgt = self.Uc(tgt)
-            image_features = self.Wc(image_features)
+        tgt = self.Vc(tgt)
+        image_features = self.Ic(image_features)
 
-        tgt2, weight_attn = self.encoder_decoder_attn(tgt, image_features, None, output_weights)
+        tgt2, weight_attn = self.encoder_decoder_attn(tgt, image_features, image_features, None, output_weights)
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
 
@@ -213,7 +207,6 @@ class TransformerDecoderLayer(nn.Module):
             tgt2 = self.linear2(self.dropout(F.relu(self.linear1(tgt))))
             tgt = tgt + self.dropout3(tgt2)
             tgt = self.norm3(tgt)
-        # return tgt, weight
 
         if output_weights:
             return tgt, (weight_text, weight_attn)
@@ -247,7 +240,7 @@ class TransformerEncoderLayer(nn.Module):
     def __init__(self, feature_size, nhead, attn_type, use_FFNN=True, dim_feedforward=2048, dropout=0.1):
         super(TransformerEncoderLayer, self).__init__()
         self.feature_size = feature_size
-        self.self_attn = get_attention(attn_type, feature_size, feature_size, feature_size, nhead)
+        self.self_attn = get_attention(attn_type, feature_size, nhead)
         self.norm1 = nn.LayerNorm(feature_size)
         self.dropout1 = nn.Dropout(dropout)
 
@@ -261,7 +254,7 @@ class TransformerEncoderLayer(nn.Module):
             self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, img_features, output_weights=False):
-        img_features2, weight = self.self_attn(img_features, img_features)
+        img_features2, weight = self.self_attn(img_features, img_features, img_features)
         img_features = img_features + self.dropout1(img_features2)
         img_features = self.norm1(img_features)
         if self.use_FFNN:
