@@ -65,8 +65,8 @@ def main(args):
             outputs, _ = model.greedy(imgs, targets_onehot[[0]].transpose(0,1))
             outputs = outputs.topk(1, -1)[1]
             outputs, targets = outputs.squeeze(-1), targets[1:].transpose(0,1).squeeze(-1)
-            outputs = outputs.to('cpu')
-            targets = targets.to('cpu')
+            outputs = outputs.to('cpu').tolist()
+            targets = targets.to('cpu').tolist()
             for sample in zip(outputs, targets):
                 print(sample)
             exit(0)
