@@ -88,7 +88,6 @@ class Transformer(nn.Module):
             # weight_encoder: None or list of **num_layers** tensors of shape [B,S,S]
         # Step 3: Decoder forwarding
         predicts = start_input.transpose(0,1).float()
-        weights = []
         for t in range(max_length):
             output, weight_decoder = self.decoder(image_features, predicts, output_weights=output_weights)
             output = self.character_distribution(output[[-1]])
@@ -97,12 +96,11 @@ class Transformer(nn.Module):
             output = torch.zeros_like(output)
             output.scatter_(-1, index, 1)
             predicts = torch.cat([predicts, output], dim=0)
-            if output_weights:
-                # weight_decoder: None or list of **num_layers** tuples, each tuple is ([B,T,T], [B,T,S])
-                weights.append((weight_encoder, weight_decoder))
+
 
         if output_weights:
-            return predicts[1:].transpose(0,1), weights
+            # weight_decoder: None or list of **num_layers** tuples, each tuple is ([B,T,T], [B,T,S])
+            return predicts[1:].transpose(0,1), (weight_encoder, weight_decoder)
         else:
             return predicts[1:].transpose(0,1), None
 
