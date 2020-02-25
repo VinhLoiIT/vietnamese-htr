@@ -265,7 +265,7 @@ def main(args):
 
         to_save = {
             'config': root_config,
-            'model': model.state_dict(),
+            'model': model.state_dict() if not multi_gpus else model.module.state_dict(),
             'optimizer': optimizer.state_dict(),
             'lr_scheduler': reduce_lr_scheduler.state_dict()
         }
