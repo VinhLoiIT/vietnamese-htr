@@ -95,6 +95,11 @@ class Transformer(nn.Module):
 
 
         if output_weights:
+            # list of 2-tuple to tuple of two list
+            # text_weight, en_de_weight = zip(*weight_decoder)
+            # en_de_weight = torch.cat(en_de_weight, dim=1)
+            # text_weight = torch.cat(text_weight, dim=1)
+
             # weight_decoder: None or list of **num_layers** tuples, each tuple is ([B,T,T], [B,T,S])
             return predicts[:,1:], (weight_encoder, weight_decoder)
         else:
@@ -221,7 +226,7 @@ class TransformerEncoder(nn.Module):
         weights = []
         for i in range(self.num_layers):
             output, weight = self.layers[i](output, output_weights)
-            weights.append(weights)
+            weights.append(weight)
 
         # output = self.norm(output)
 
@@ -248,7 +253,7 @@ class TransformerEncoderLayer(nn.Module):
             self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, img_features, output_weights=False):
-        img_features2, weight = self.self_attn(img_features, img_features, img_features)
+        img_features2, weight = self.self_attn(img_features, img_features, img_features, output_weights=output_weights)
         img_features = img_features + self.dropout1(img_features2)
         img_features = self.norm1(img_features)
         if self.use_FFNN:
