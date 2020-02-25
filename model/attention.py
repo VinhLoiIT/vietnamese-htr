@@ -122,7 +122,7 @@ class MultiHeadAttention(nn.Module):
         :param keys: [B, S, A]
         Output:
         - values: [B, T, A]
-        - weights: [B, T, S]
+        - weights: [nhead, B, T, S]
         '''
         q_projected = [q_proj(queries) for q_proj in self.q_proj]
         k_projected = [k_proj(keys) for k_proj in self.k_proj]
@@ -137,7 +137,7 @@ class MultiHeadAttention(nn.Module):
         values = self.o_proj(values) # [B,T,A]
         if output_weights:
             weights = torch.stack(weights, dim=0) # [nhead,B,T,S]
-            weights = torch.mean(weights, dim=0, keepdim=False) # weight: [B, T, S]
+            # weights = torch.mean(weights, dim=0, keepdim=False) # weight: [B, T, S]
             return values, weights
         else:
             return values, None

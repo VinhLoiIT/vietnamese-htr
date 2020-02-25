@@ -87,7 +87,8 @@ class Transformer(nn.Module):
         # Step 3: Decoder forwarding
         predicts = start_input.float()
         for t in range(max_length):
-            output, weight_decoder = self.decoder(image_features, predicts, output_weights=output_weights)
+            attn_mask = self.generate_subsquence_mask(batch_size, predicts.size(1))
+            output, weight_decoder = self.decoder(image_features, predicts, attn_mask, output_weights=output_weights)
             output = self.character_distribution(output[:,[-1]])
             output = F.softmax(output, -1)
             index = output.topk(1, -1)[1]
