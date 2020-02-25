@@ -40,19 +40,18 @@ class Attention(nn.Module):
     def forward(self, queries, keys, values, attn_mask=None, output_weights=False):
         '''
         Input:
-        :param queries: [T, B, A]
-        :param keys: [S, B, A]
-        :param values: [S, B, A]
+        :param queries: [B, T, A]
+        :param keys: [B, S, A]
+        :param values: [B, S, A]
         :param attn_mask: [B,T,S]
         Output:
-        - values: [T, B, C]
+        - values: [B, T, C]
         - weights: [B, T, S] if output_weights = True else None
         '''
         weights = self.score(queries, keys) # [B,T,S]
         weights = self.apply_mask(weights, attn_mask) # [B,T,S]
         weights = F.softmax(weights, dim=-1)
-        values = weights.bmm(values.transpose(0,1)) # [B, T, A]
-        values = values.transpose(0,1)
+        values = weights.bmm(values) # [B, T, A]
         if output_weights:
             return values, weights
         else:
@@ -68,14 +67,14 @@ class AdditiveAttention(Attention):
     def score(self, queries, keys):
         '''
         Input:
-        - queries: [T, B, A]
-        - keys: [S, B, A]
+        - queries: [B, T, A]
+        - keys: [B, S, A]
         - attn_mask: [B, T, S] - BoolTensor, value True for where T can attention at S
         Output:
         - weights: [B, T, S]
         '''
-        keys = self.Wa(keys).transpose(0,1) # [B,S,A]
-        queries = self.Ua(queries).transpose(0,1) # [B,T,A]
+        keys = self.Wa(keys) # [B,S,A]
+        queries = self.Ua(queries) # [B,T,A]
 
         keys = keys.unsqueeze(1) # [B,1,S,A]
         queries = queries.unsqueeze(2) # [B,T,1,A]
@@ -91,15 +90,12 @@ class ScaleDotProductAttention(Attention):
     def score(self, queries, keys):
         '''
         Input:
-        - queries: [T, B, A] - Keys, Values
-        - keys: [S, B, A] - Queryes
+        - queries: [B, T, A]
+        - keys: [B, S, A]
         Output:
         - weights: [B, T, S]
         '''
         attn_dim = queries.size(-1)
-        queries = queries.transpose(0, 1) # [B,T,A]
-        keys = keys.transpose(0, 1) # [B,S,A]
-
         # [B,T,A] x [B,A,S] = [B,T,S]
         matmul = queries.bmm(keys.transpose(1, 2))
         scaled = matmul / attn_dim # [B,T,S]
@@ -122,10 +118,10 @@ class MultiHeadAttention(nn.Module):
     def forward(self, queries, keys, values, attn_mask=None, output_weights=False):
         '''
         Input:
-        :param queries: [T, B, A]
-        :param keys: [S, B, A]
+        :param queries: [B, T, A]
+        :param keys: [B, S, A]
         Output:
-        - values: [T, B, A]
+        - values: [B, T, A]
         - weights: [B, T, S]
         '''
         q_projected = [q_proj(queries) for q_proj in self.q_proj]
@@ -134,11 +130,11 @@ class MultiHeadAttention(nn.Module):
 
         head_outputs = [head(q,k,v,attn_mask, output_weights) for head,q,k,v in zip(self.heads, q_projected, k_projected, v_projected)]
         values, weights = list(zip(*head_outputs))
-        # values (list): nhead * [T,B,head_attn_size]
+        # values (list): nhead * [B,T,head_attn_size]
         # weights (list): nhead * [B,T,S]
 
-        values = torch.cat(values, -1) # [T,B,A]
-        values = self.o_proj(values) # [T,B,A]
+        values = torch.cat(values, -1) # [B,T,A]
+        values = self.o_proj(values) # [B,T,A]
         if output_weights:
             weights = torch.stack(weights, dim=0) # [nhead,B,T,S]
             weights = torch.mean(weights, dim=0, keepdim=False) # weight: [B, T, S]

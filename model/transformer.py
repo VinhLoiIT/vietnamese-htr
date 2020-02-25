@@ -41,36 +41,32 @@ class Transformer(nn.Module):
         Return:
             - outputs: [B,L,V]
         '''
-        max_length = targets.shape[1]
         batch_size, _, input_image_h, input_image_w = images.size()
 
         # Step 1: CNN Feature Extraction
         image_features = self.cnn(images) # [B, C', H', W']
-
-        feature_image_h, feature_image_w = image_features.size()[-2:]
         image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
-        image_features = image_features.permute(2,0,1) # [S, B, C']
+        image_features = image_features.transpose(1,2) # [B, S, C']
 
         # Step 2: Encoder forwarding
         if self.encoder is not None:
             image_features, _ = self.encoder(image_features, output_weights=False)
 
         # Step 3: Decoder forwarding
-        targets = targets.transpose(0,1).float()
+        targets = targets.float()
+        max_length = targets.shape[1]
         attn_mask = self.generate_subsquence_mask(batch_size, max_length).to(targets.device)
         output, _ = self.decoder(image_features, targets, attn_mask)
         output = self.character_distribution(output)
-
-        output.transpose_(0,1)
         return output
 
     def greedy(self, images, start_input, output_weights=False, max_length=10):
         '''
         Inputs:
         :param images: [B,C,H,W]
-        :param start_input: Tensor of [L,B,V], which should start with <start> and end with <end>
+        :param start_input: Tensor of [B,1,V], which is <start> character in onehot
         Return:
-            - outputs: [L,B,V]
+            - outputs: [B,L,V]
             - weights: None #TODO: not implement yet
         '''
         batch_size, _, input_image_h, input_image_w = images.size()
@@ -79,7 +75,7 @@ class Transformer(nn.Module):
         image_features = self.cnn(images) # [B, C', H', W']
         feature_image_h, feature_image_w = image_features.size()[-2:]
         image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
-        image_features = image_features.permute(2,0,1) # [S, B, C']
+        image_features = image_features.transpose(1,2) # [B,S,C']
 
         # Step 2: Encoder forwarding
         if self.encoder is not None:
@@ -87,22 +83,22 @@ class Transformer(nn.Module):
             # image_features: [S,B,C']
             # weight_encoder: None or list of **num_layers** tensors of shape [B,S,S]
         # Step 3: Decoder forwarding
-        predicts = start_input.transpose(0,1).float()
+        predicts = start_input.float()
         for t in range(max_length):
             output, weight_decoder = self.decoder(image_features, predicts, output_weights=output_weights)
-            output = self.character_distribution(output[[-1]])
+            output = self.character_distribution(output[:,[-1]])
             output = F.softmax(output, -1)
             index = output.topk(1, -1)[1]
             output = torch.zeros_like(output)
             output.scatter_(-1, index, 1)
-            predicts = torch.cat([predicts, output], dim=0)
+            predicts = torch.cat([predicts, output], dim=1)
 
 
         if output_weights:
             # weight_decoder: None or list of **num_layers** tuples, each tuple is ([B,T,T], [B,T,S])
-            return predicts[1:].transpose(0,1), (weight_encoder, weight_decoder)
+            return predicts[:,1:], (weight_encoder, weight_decoder)
         else:
-            return predicts[1:].transpose(0,1), None
+            return predicts[:,1:], None
 
 class PositionalEncoding(nn.Module):
 
