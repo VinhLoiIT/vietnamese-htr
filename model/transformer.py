@@ -80,6 +80,8 @@ class Transformer(nn.Module):
         # Step 2: Encoder forwarding
         if self.encoder is not None:
             image_features, weight_encoder = self.encoder(image_features, output_weights=output_weights)
+        else:
+            weight_encoder = None
             # image_features: [S,B,C']
             # weight_encoder: None or list of **num_layers** tensors of shape [B,S,S]
         # Step 3: Decoder forwarding
