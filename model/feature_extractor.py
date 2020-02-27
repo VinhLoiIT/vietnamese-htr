@@ -22,10 +22,11 @@ class FE(nn.Module):
 class DenseNetFE(FE):
     def __init__(self, depth, n_blocks, growth_rate):
         super().__init__()
-        densenet = torchvision.models.DenseNet(
-            growth_rate=growth_rate,
-            block_config=[depth]*n_blocks
-        )
+        densenet = torchvision.models.densenet161(pretrained=True)
+        #densenet = torchvision.models.DenseNet(
+        #    growth_rate=growth_rate,
+        #    block_config=[depth]*n_blocks
+        #)
 
         self.cnn = densenet.features
         self.n_features = densenet.classifier.in_features
