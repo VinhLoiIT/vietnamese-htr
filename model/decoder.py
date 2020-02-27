@@ -15,11 +15,14 @@ class Decoder(nn.Module):
         self.attn_size = attn_size
 
         self.rnn = nn.LSTM(
-            input_size=self.vocab_size+self.feature_size,
+            input_size=self.vocab_size+self.attn_size,
             hidden_size=self.hidden_size,
+            batch_first=True,
         )
 
-        self.attention = get_attention(attention, feature_size, hidden_size, attn_size)
+        self.Hc = nn.Linear(hidden_size, attn_size)
+        self.Ic = nn.Linear(feature_size, attn_size)
+        self.attention = get_attention(attention, attn_size)
 
         self.character_distribution = nn.Linear(self.hidden_size, self.vocab_size)
 
@@ -28,67 +31,82 @@ class Decoder(nn.Module):
 
     def forward(self, img_features, targets, teacher_forcing_ratio=0.5):
         '''
-        :param img_features: tensor of [num_pixels, B, C]
-        :param targets: tensor of [T, B, V], each target has <start> at beginning of the word
+        :param img_features: tensor of [B, num_pixels, C]
+        :param targets: tensor of [B, T, V], each target has <start> at beginning of the word
         :return:
-            outputs: tensor of [T, B, V]
-            weights: tensor of [T, B, num_pixels]
+            outputs: tensor of [B, T, V]
+            weights: tensor of [B, T, num_pixels]
         '''
-        num_pixels = img_features.size(0)
-        batch_size = img_features.size(1)
-        max_length = targets.size(0)
+        num_pixels = img_features.size(1)
+        batch_size = img_features.size(0)
+        max_length = targets.size(1)
 
         targets = targets.float()
-        rnn_input = targets[[0]].float() # [1, B, V]
+        rnn_input = targets[:,[0]].float() # [B,1,V]
+
         hidden = self.init_hidden(batch_size).to(img_features.device)
         cell_state = self.init_hidden(batch_size).to(img_features.device)
 
-        outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
+        outputs = torch.zeros(batch_size, max_length, self.vocab_size, device=img_features.device)
+        attn_img = self.Ic(img_features) # [B, num_pixels, A]
 
         for t in range(max_length):
-            context, weight = self.attention(hidden, img_features) # [1, B, C], [num_pixels, B, 1]
+            attn_hidden = self.Hc(hidden.transpose(0,1)) # batch first for Linear
+            context, weight = self.attention(attn_hidden, attn_img, attn_img) # [B, 1, attn_size], [B, 1, num_pixels]
             self.rnn.flatten_parameters()
             output, (hidden, cell_state) = self.rnn(torch.cat((rnn_input, context), -1), (hidden, cell_state))
             output = self.character_distribution(output)
 
-            outputs[[t]] = output
+            outputs[:, [t]] = output
 
             teacher_force = random.random() < teacher_forcing_ratio
             if self.training and teacher_force:
-                rnn_input = targets[[t]]
+                rnn_input = targets[:, [t]]
             else:
                 rnn_input = output
 
         return outputs
 
     def greedy(self, img_features, start_input, max_length=10):
-        num_pixels = img_features.size(0)
-        batch_size = img_features.size(1)
+        '''
+        Shapes:
+        -------
+        - img_features: [B,num_pixels,C]
+        - start_input: [B,1,V]
+
+        Returns:
+        - outputs: [B,T,V]
+        - weights: [B,T,num_pixels]
+        '''
+        num_pixels = img_features.size(1)
+        batch_size = img_features.size(0)
 
         rnn_input = start_input.float()
 
         hidden = self.init_hidden(batch_size).to(img_features.device)
         cell_state = self.init_hidden(batch_size).to(img_features.device)
-        
-        outputs = torch.zeros(max_length, batch_size, self.vocab_size, device=img_features.device)
-        weights = torch.zeros(max_length, batch_size, num_pixels, device=img_features.device) 
 
-        # pdb.set_trace()
+        outputs = torch.zeros(batch_size, max_length, self.vocab_size, device=img_features.device)
+        weights = torch.zeros(batch_size, max_length, num_pixels, device=img_features.device)
+
+        attn_img = self.Ic(img_features)
+
         for t in range(max_length):
-            context, weight = self.attention(hidden, img_features, output_weights=True) # [B, 1, num_pixels]
+            attn_hidden = self.Hc(hidden.transpose(0,1)) # forward Linear should be batch_first
+            context, weight = self.attention(attn_hidden, attn_img, attn_img, output_weights=True) # [B, 1, num_pixels]
 
             rnn_input = torch.cat((rnn_input, context), -1)
 
             output, (hidden, cell_state) = self.rnn(rnn_input, (hidden, cell_state))
             output = self.character_distribution(output)
 
-            outputs[[t]] = output
-            weights[[t]] = weight.transpose(0, 1)
+            outputs[:, [t]] = output
+            weights[:, [t]] = weight
 
             rnn_input = output
 
         return outputs, weights
-    
+
     def beamsearch(self, img_features, start_input, max_length=10, beam_size=3):
         num_pixels = img_features.size(0)
         batch_size = img_features.size(1)

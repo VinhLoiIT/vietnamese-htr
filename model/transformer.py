@@ -5,7 +5,7 @@ import copy
 import math
 import random
 
-from .attention import get_attention
+from .attention import *
 
 class Transformer(nn.Module):
     def __init__(self, cnn, vocab_size, config):
@@ -41,36 +41,32 @@ class Transformer(nn.Module):
         Return:
             - outputs: [B,L,V]
         '''
-        max_length = targets.shape[1]
         batch_size, _, input_image_h, input_image_w = images.size()
 
         # Step 1: CNN Feature Extraction
         image_features = self.cnn(images) # [B, C', H', W']
-
-        feature_image_h, feature_image_w = image_features.size()[-2:]
         image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
-        image_features = image_features.permute(2,0,1) # [S, B, C']
+        image_features = image_features.transpose(1,2) # [B, S, C']
 
         # Step 2: Encoder forwarding
         if self.encoder is not None:
             image_features, _ = self.encoder(image_features, output_weights=False)
 
         # Step 3: Decoder forwarding
-        targets = targets.transpose(0,1).float()
+        targets = targets.float()
+        max_length = targets.shape[1]
         attn_mask = self.generate_subsquence_mask(batch_size, max_length).to(targets.device)
         output, _ = self.decoder(image_features, targets, attn_mask)
         output = self.character_distribution(output)
-
-        output.transpose_(0,1)
         return output
 
     def greedy(self, images, start_input, output_weights=False, max_length=10):
         '''
         Inputs:
         :param images: [B,C,H,W]
-        :param start_input: Tensor of [L,B,V], which should start with <start> and end with <end>
+        :param start_input: Tensor of [B,1,V], which is <start> character in onehot
         Return:
-            - outputs: [L,B,V]
+            - outputs: [B,L,V]
             - weights: None #TODO: not implement yet
         '''
         batch_size, _, input_image_h, input_image_w = images.size()
@@ -79,32 +75,38 @@ class Transformer(nn.Module):
         image_features = self.cnn(images) # [B, C', H', W']
         feature_image_h, feature_image_w = image_features.size()[-2:]
         image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
-        image_features = image_features.permute(2,0,1) # [S, B, C']
+        image_features = image_features.transpose(1,2) # [B,S,C']
 
         # Step 2: Encoder forwarding
         if self.encoder is not None:
             image_features, weight_encoder = self.encoder(image_features, output_weights=output_weights)
+        else:
+            weight_encoder = None
             # image_features: [S,B,C']
             # weight_encoder: None or list of **num_layers** tensors of shape [B,S,S]
         # Step 3: Decoder forwarding
-        predicts = start_input.transpose(0,1).float()
-        weights = []
+        predicts = start_input.float()
         for t in range(max_length):
-            output, weight_decoder = self.decoder(image_features, predicts, output_weights=output_weights)
-            output = self.character_distribution(output[[-1]])
+            attn_mask = self.generate_subsquence_mask(batch_size, predicts.size(1))
+            output, weight_decoder = self.decoder(image_features, predicts, attn_mask, output_weights=output_weights)
+            output = self.character_distribution(output[:,[-1]])
             output = F.softmax(output, -1)
             index = output.topk(1, -1)[1]
             output = torch.zeros_like(output)
             output.scatter_(-1, index, 1)
-            predicts = torch.cat([predicts, output], dim=0)
-            if output_weights:
-                # weight_decoder: None or list of **num_layers** tuples, each tuple is ([B,T,T], [B,T,S])
-                weights.append((weight_encoder, weight_decoder))
+            predicts = torch.cat([predicts, output], dim=1)
+
 
         if output_weights:
-            return predicts[1:].transpose(0,1), weights
+            # list of 2-tuple to tuple of two list
+            # text_weight, en_de_weight = zip(*weight_decoder)
+            # en_de_weight = torch.cat(en_de_weight, dim=1)
+            # text_weight = torch.cat(text_weight, dim=1)
+
+            # weight_decoder: None or list of **num_layers** tuples, each tuple is ([B,T,T], [B,T,S])
+            return predicts[:,1:], (weight_encoder, weight_decoder)
         else:
-            return predicts[1:].transpose(0,1), None
+            return predicts[:,1:], None
 
 class PositionalEncoding(nn.Module):
 
@@ -169,16 +171,11 @@ class TransformerDecoderLayer(nn.Module):
         '''
         super(TransformerDecoderLayer, self).__init__()
 
-        self.self_attn = get_attention(decoder_attn, vocab_size, vocab_size, vocab_size, nhead_vocab)
+        self.self_attn = get_attention(decoder_attn, vocab_size, nhead_vocab)
 
-        if direct_additive:
-            self._convert_dim = False
-            self.encoder_decoder_attn = get_attention(encoder_decoder_attn, cnn_features, vocab_size, attn_size, 1)
-        else:
-            self._convert_dim = True
-            self.Wc = nn.Linear(cnn_features, attn_size)
-            self.Uc = nn.Linear(vocab_size, attn_size)
-            self.encoder_decoder_attn = get_attention(encoder_decoder_attn, attn_size, attn_size, attn_size, nhead_attn)
+        self.Ic = nn.Linear(cnn_features, attn_size)
+        self.Vc = nn.Linear(vocab_size, attn_size)
+        self.encoder_decoder_attn = get_attention(encoder_decoder_attn, attn_size, nhead_attn)
 
         self.norm1 = nn.LayerNorm(vocab_size)
         self.dropout1 = nn.Dropout(dropout)
@@ -197,15 +194,14 @@ class TransformerDecoderLayer(nn.Module):
         self.attn_size = attn_size
 
     def forward(self, image_features, tgt, attn_mask=None, output_weights=False):
-        tgt2, weight_text = self.self_attn(tgt, tgt, attn_mask, output_weights)
+        tgt2, weight_text = self.self_attn(tgt, tgt, tgt, attn_mask, output_weights)
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
 
-        if self._convert_dim:
-            tgt = self.Uc(tgt)
-            image_features = self.Wc(image_features)
+        tgt = self.Vc(tgt)
+        image_features = self.Ic(image_features)
 
-        tgt2, weight_attn = self.encoder_decoder_attn(tgt, image_features, None, output_weights)
+        tgt2, weight_attn = self.encoder_decoder_attn(tgt, image_features, image_features, None, output_weights)
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
 
@@ -213,7 +209,6 @@ class TransformerDecoderLayer(nn.Module):
             tgt2 = self.linear2(self.dropout(F.relu(self.linear1(tgt))))
             tgt = tgt + self.dropout3(tgt2)
             tgt = self.norm3(tgt)
-        # return tgt, weight
 
         if output_weights:
             return tgt, (weight_text, weight_attn)
@@ -234,7 +229,7 @@ class TransformerEncoder(nn.Module):
         weights = []
         for i in range(self.num_layers):
             output, weight = self.layers[i](output, output_weights)
-            weights.append(weights)
+            weights.append(weight)
 
         # output = self.norm(output)
 
@@ -247,7 +242,7 @@ class TransformerEncoderLayer(nn.Module):
     def __init__(self, feature_size, nhead, attn_type, use_FFNN=True, dim_feedforward=2048, dropout=0.1):
         super(TransformerEncoderLayer, self).__init__()
         self.feature_size = feature_size
-        self.self_attn = get_attention(attn_type, feature_size, feature_size, feature_size, nhead)
+        self.self_attn = get_attention(attn_type, feature_size, nhead)
         self.norm1 = nn.LayerNorm(feature_size)
         self.dropout1 = nn.Dropout(dropout)
 
@@ -261,7 +256,7 @@ class TransformerEncoderLayer(nn.Module):
             self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, img_features, output_weights=False):
-        img_features2, weight = self.self_attn(img_features, img_features)
+        img_features2, weight = self.self_attn(img_features, img_features, img_features, output_weights=output_weights)
         img_features = img_features + self.dropout1(img_features2)
         img_features = self.norm1(img_features)
         if self.use_FFNN:

@@ -84,9 +84,9 @@ def main(args):
         print(model)
         model.eval()
         dummy_image_input = torch.rand(config['batch_size'], 3, config['scale_height'], config['scale_height'] * 2)
-        dummy_target_input = torch.rand(config['max_length'], config['batch_size'], vocab.vocab_size)
+        dummy_target_input = torch.rand(config['batch_size'], config['max_length'], vocab.vocab_size)
         dummy_output_train = model(dummy_image_input, dummy_target_input)
-        dummy_output_greedy, _ = model.greedy(dummy_image_input, dummy_target_input[[0]])
+        dummy_output_greedy, _ = model.greedy(dummy_image_input, dummy_target_input[:,[0]])
         logger.debug(dummy_output_train.shape)
         logger.debug(dummy_output_greedy.shape)
         logger.info('Ok')
@@ -119,6 +119,8 @@ def main(args):
         ScaleImageByHeight(config['scale_height']),
         HandcraftFeature() if config['use_handcraft'] else transforms.Grayscale(3),
         transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225]),
     ])
 
     train_loader = get_data_loader(config['dataset'], 'train', config['batch_size'],
@@ -265,7 +267,7 @@ def main(args):
 
         to_save = {
             'config': root_config,
-            'model': model.state_dict(),
+            'model': model.state_dict() if not multi_gpus else model.module.state_dict(),
             'optimizer': optimizer.state_dict(),
             'lr_scheduler': reduce_lr_scheduler.state_dict()
         }

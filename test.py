@@ -54,6 +54,23 @@ def main(args):
     test_loader = get_data_loader(config['common']['dataset'], args.parition, config['common']['batch_size'],
                                   test_transform, vocab, debug=args.debug)
 
+    if args.oneshot:
+        model.eval()
+        with torch.no_grad():
+            imgs, targets, targets_onehot, lengths = next(iter(test_loader))
+            imgs = imgs.to(device)
+            targets = targets.to(device)
+            targets_onehot = targets_onehot.to(device)
+
+            outputs, _ = model.greedy(imgs, targets_onehot[[0]].transpose(0,1))
+            outputs = outputs.topk(1, -1)[1]
+            outputs, targets = outputs.squeeze(-1), targets[1:].transpose(0,1).squeeze(-1)
+            outputs = outputs.to('cpu').tolist()
+            targets = targets.to('cpu').tolist()
+            for sample in zip(outputs, targets):
+                print(sample)
+            exit(0)
+
     def step_val(engine, batch):
         model.eval()
         with torch.no_grad():
@@ -107,6 +124,7 @@ if __name__ == '__main__':
     parser.add_argument('--gpu-id', type=int, default=0)
     parser.add_argument('--log-interval', type=int, default=50)
     parser.add_argument('--debug', action='store_true', default=False)
+    parser.add_argument('--oneshot', action='store_true', default=False)
     args = parser.parse_args()
 
     main(args)
