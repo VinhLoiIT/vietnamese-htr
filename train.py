@@ -12,7 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
 from data import get_data_loader, get_vocab, PAD_CHAR, EOS_CHAR
-from model import Seq2Seq, Transformer, DenseNetFE
+from model import Seq2Seq, Transformer, DenseNetFE, SqueezeNetFE
 from utils import ScaleImageByHeight, HandcraftFeature
 from metrics import CharacterErrorRate, WordErrorRate
 
@@ -62,8 +62,11 @@ def main(args):
         cnn = DenseNetFE(cnn_config['depth'],
                          cnn_config['n_blocks'],
                          cnn_config['growth_rate'])
+    elif config['cnn'] == 'squeezenet':
+        cnn = SqueezeNetFE()
     else:
         raise ValueError('Unknow CNN {}'.format(config['cnn']))
+
     if args.model == 'tf':
         model_config = root_config['tf']
         model = Transformer(cnn, vocab.vocab_size, model_config)
@@ -102,6 +105,11 @@ def main(args):
         optimizer = optim.Adam(model.parameters(),
                                lr=config['start_learning_rate'],
                                weight_decay=config['weight_decay'])
+    elif config['optimizer'] == 'sgd':
+        optimizer = optim.SGD(model.parameters(),
+                              lr=config['start_learning_rate'],
+                              momentum=config['momentum'],
+                              weight_decay=config['weight_decay'])
     else:
         raise ValueError('Unknow optimizer {}'.format(config['optimizer']))
     reduce_lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -284,7 +292,7 @@ def main(args):
                 'metric/training_time': training_timer.value(),
             })
 
-    trainer.run(train_loader, max_epochs=2 if args.debug else config['max_epochs'])
+    trainer.run(train_loader, max_epochs=5 if args.debug else config['max_epochs'])
 
     print(best_metrics)
     writer.add_hparams(flatten_config(config), best_metrics)

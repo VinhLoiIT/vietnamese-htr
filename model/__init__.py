@@ -1,4 +1,4 @@
-from .feature_extractor import DenseNetFE
+from .feature_extractor import DenseNetFE, SqueezeNetFE
 from .seq2seq import Seq2Seq
 from .transformer import Transformer
 from .attention import AdditiveAttention, ScaleDotProductAttention, MultiHeadAttention

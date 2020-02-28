@@ -8,10 +8,10 @@ class FE(nn.Module):
 
     def get_cnn(self):
         raise NotImplementedError()
-    
+
     def get_n_features(self):
         raise NotImplementedError()
-    
+
     def forward(self, inputs):
         '''
         :param inputs: [B, C, H, W]
@@ -33,10 +33,22 @@ class DenseNetFE(FE):
 
     def get_cnn(self):
         return self.cnn
-    
+
     def get_n_features(self):
         return self.n_features
-    
+
+class SqueezeNetFE(FE):
+    def __init__(self):
+        super().__init__()
+        squeezenet = torchvision.models.squeezenet1_1(pretrained=True)
+        self.cnn = squeezenet.features
+        self.n_features = 512
+
+    def get_cnn(self):
+        return self.cnn
+    def get_n_features(self):
+        return self.n_features
+
 '''
 LeNet-5
 https://engmrk.com/lenet-5-a-classic-cnn-architecture/
