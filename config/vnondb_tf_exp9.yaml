@@ -21,11 +21,11 @@ densenet:
 
 tf:
     attn_size: 256
-    use_encoder: True
+    use_encoder: False
     use_FFNN: True
-    encoder_attn: additive
+    encoder_attn: scaledotproduct
     decoder_attn: additive
-    encoder_decoder_attn: additive
+    encoder_decoder_attn: scaledotproduct
     direct_additive: False
     encoder_nhead: 8
     decoder_nhead: 10

@@ -131,7 +131,7 @@ def main(args):
                              std=[0.229, 0.224, 0.225]),
     ])
 
-    train_loader = get_data_loader(config['dataset'], 'train', config['batch_size'],
+    train_loader = get_data_loader(config['dataset'], 'trainval' if args.trainval else 'train', config['batch_size'],
                                    image_transform, vocab, args.debug)
 
     val_loader = get_data_loader(config['dataset'], 'val', config['batch_size'],
@@ -310,6 +310,7 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true', default=False)
     parser.add_argument('--debug-model', action='store_true', default=False)
     parser.add_argument('--log-root', type=str, default='./runs')
+    parser.add_argument('--trainval', action='store_true', default=False)
     parser.add_argument('--gpu-id', type=int, default=0)
     parser.add_argument('--multi-gpus', action='store_true', default=False)
     parser.add_argument('--log-interval', type=int, default=50)
