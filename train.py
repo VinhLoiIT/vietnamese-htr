@@ -20,6 +20,11 @@ from torch.nn.utils.rnn import pack_padded_sequence
 
 import logging
 
+# Reproducible
+seed = 0
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+
 def load_config(config_path):
     import yaml
     with open(config_path, 'r') as stream:
