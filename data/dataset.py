@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from PIL import Image
 
@@ -16,7 +17,7 @@ class Vocab(object):
         self.char2int = dict((c, i) for i, c in enumerate(alphabets))
         self.int2char = dict((i, c) for i, c in enumerate(alphabets))
         self.vocab_size = len(alphabets)
-    
+
     def __call__(self, samples):
         '''
         :param samples: list of tuples:
@@ -34,30 +35,24 @@ class Vocab(object):
         # images: [B, 3, H, W]
         max_image_row = max([image.size(1) for image in image_samples])
         max_image_col = max([image.size(2) for image in image_samples])
-        images = torch.ones(batch_size, 3, max_image_row, max_image_col)
+        images = torch.zeros(batch_size, 3, max_image_row, max_image_col)
         for i, image in enumerate(image_samples):
             image_row = image.shape[1]
             image_col = image.shape[2]
             images[i, :, :image_row, :image_col] = image
 
-        label_lengths = [len(label) for label in label_samples]
-        max_length = max(label_lengths)
-        label_samples = [label + [PAD_CHAR] * (max_length - len(label)) for label in label_samples]
-        
-        labels = torch.zeros(max(label_lengths), batch_size, 1, dtype=torch.long) # [max_T, B, 1]
-        for i, label in enumerate(label_samples):
-            label_int = torch.tensor([self.char2int[char] for char in label]).view(-1, 1) # [T, 1]
-            labels[:, i] = label_int
-            
-        labels_onehot = torch.zeros(max(label_lengths), batch_size, self.vocab_size, dtype=torch.long) # [max_T, B, vocab_size]
-        for label_i, label in enumerate(label_samples):
-            for char_i, char in enumerate(label):
-                char_int = self.char2int[char]
-                onehot = torch.zeros(self.vocab_size, dtype=torch.long)
-                onehot[char_int] = 1
-                labels_onehot[char_i, label_i] = onehot
+        label_lengths = torch.tensor([len(label) for label in label_samples])
+        max_length = label_lengths.max().item()
 
-        return images, labels, labels_onehot, torch.tensor(label_lengths).view(-1, 1)
+        label_tensors = []
+        for label in label_samples:
+            label = [self.char2int[char] for char in label]
+            label = torch.tensor(label)
+            label = F.pad(label, (0, max_length - len(label)), 'constant', self.char2int[PAD_CHAR])
+            label_tensors.append(label)
+        label_tensors = torch.stack(label_tensors, dim=0)
+
+        return images, label_tensors, label_lengths
 
 def get_alphabets(dataset):
     if dataset == 'vnondb':

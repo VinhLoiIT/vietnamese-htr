@@ -32,7 +32,7 @@ class CharacterErrorRate(Metric):
     Calculates the CharacterErrorRate.
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, EOS_int, output_transform=None, batch_first=False):
+    def __init__(self, EOS_int, output_transform=None, batch_first=True):
         super().__init__()
         self.EOS_int = EOS_int
         self.output_transform = output_transform
@@ -93,7 +93,7 @@ class WordErrorRate(Metric):
     - When recognize at word-level, this metric is (1 - Accuracy)
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, EOS_int, output_transform=None, batch_first=False):
+    def __init__(self, EOS_int, output_transform=None, batch_first=True):
         super().__init__()
         self.EOS_int = EOS_int
         self.output_transform = output_transform

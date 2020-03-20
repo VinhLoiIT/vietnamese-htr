@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torchvision
 import torch.nn.functional as F
+from efficientnet_pytorch import EfficientNet
 
 class FE(nn.Module):
     def __init__(self):
@@ -20,14 +21,9 @@ class FE(nn.Module):
         return self.get_cnn()(inputs) # [B, C', H', W']
 
 class DenseNetFE(FE):
-    def __init__(self, depth, n_blocks, growth_rate):
+    def __init__(self):
         super().__init__()
-        densenet = torchvision.models.densenet161(pretrained=True)
-        #densenet = torchvision.models.DenseNet(
-        #    growth_rate=growth_rate,
-        #    block_config=[depth]*n_blocks
-        #)
-
+        densenet = torchvision.models.densenet161(pretrained=True, memory_efficient=True)
         self.cnn = densenet.features
         self.n_features = densenet.classifier.in_features
 
@@ -36,6 +32,30 @@ class DenseNetFE(FE):
 
     def get_n_features(self):
         return self.n_features
+
+    def forward(self, inputs):
+        features = super().forward(inputs)
+        out = F.relu(features, inplace=True)
+        out = F.adaptive_avg_pool2d(out, (1, 1))
+        return out
+
+class EfficientNetFE(FE):
+    def __init__(self, pretrained_name="efficientnet-b0"):
+        super().__init__()
+        self.effnet = EfficientNet.from_pretrained(pretrained_name, advprop=True)
+        self.cnn = self.effnet.extract_features
+        self.n_features = self.effnet._fc.in_features
+
+    def get_cnn(self):
+        return self.cnn
+
+    def get_n_features(self):
+        return self.n_features
+
+    def forward(self, inputs):
+        features = super().forward(inputs)
+        out = F.adaptive_avg_pool2d(features, (1, 1))
+        return out
 
 class SqueezeNetFE(FE):
     def __init__(self):

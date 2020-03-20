@@ -24,10 +24,7 @@ class Transformer(nn.Module):
                                                 direct_additive=config['direct_additive'], use_FFNN=config['use_FFNN'])
         self.decoder = TransformerDecoder(config['attn_size'], decoder_layer, num_layers=config['decoder_nlayers'])
 
-        if config['direct_additive']:
-            self.character_distribution = nn.Linear(self.cnn.n_features, vocab_size)
-        else:
-            self.character_distribution = nn.Linear(config['attn_size'], vocab_size)
+        self.character_distribution = nn.Linear(config['attn_size'], vocab_size)
 
     def generate_subsquence_mask(self, batch_size, size):
         mask = torch.tril(torch.ones(batch_size, size, size)).bool()
@@ -41,7 +38,7 @@ class Transformer(nn.Module):
         Return:
             - outputs: [B,L,V]
         '''
-        batch_size, _, input_image_h, input_image_w = images.size()
+        batch_size = images.size(0)
 
         # Step 1: CNN Feature Extraction
         image_features = self.cnn(images) # [B, C', H', W']
@@ -69,11 +66,10 @@ class Transformer(nn.Module):
             - outputs: [B,L,V]
             - weights: None #TODO: not implement yet
         '''
-        batch_size, _, input_image_h, input_image_w = images.size()
+        batch_size = images.size(0)
 
         # Step 1: CNN Feature Extraction
         image_features = self.cnn(images) # [B, C', H', W']
-        feature_image_h, feature_image_w = image_features.size()[-2:]
         image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
         image_features = image_features.transpose(1,2) # [B,S,C']
 
@@ -127,11 +123,11 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 class TransformerDecoder(nn.Module):
-    def __init__(self, attn_size, decoder_layer, num_layers=1):
+    def __init__(self, attn_size, decoder_layer, num_layers=1, norm=None):
         super(TransformerDecoder, self).__init__()
         self.layers = _get_clones(decoder_layer, num_layers)
         self.num_layers = num_layers
-        # self.norm = nn.LayerNorm(attn_size)
+        self.norm = norm
 
     def forward(self, image_features, tgt, attn_mask=None, output_weights=False):
 
@@ -140,7 +136,9 @@ class TransformerDecoder(nn.Module):
         for i in range(self.num_layers):
             output, weight = self.layers[i](image_features, tgt, attn_mask, output_weights=output_weights)
             weights.append(weight)
-        # output = self.norm(output)
+
+        if self.norm is not None:
+            output = self.norm(output)
 
         if output_weights:
             return output, weights
@@ -182,14 +180,12 @@ class TransformerDecoderLayer(nn.Module):
         self.norm2 = nn.LayerNorm(attn_size)
         self.dropout2 = nn.Dropout(dropout)
 
-        self.use_FFNN = use_FFNN
-        if use_FFNN:
-            # Implementation of Feedforward model
-            self.linear1 = nn.Linear(attn_size, dim_feedforward)
-            self.dropout = nn.Dropout(dropout)
-            self.linear2 = nn.Linear(dim_feedforward, attn_size)
-            self.norm3 = nn.LayerNorm(attn_size)
-            self.dropout3 = nn.Dropout(dropout)
+        # Implementation of Feedforward model
+        self.linear1 = nn.Linear(attn_size, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, attn_size)
+        self.norm3 = nn.LayerNorm(attn_size)
+        self.dropout3 = nn.Dropout(dropout)
 
         self.attn_size = attn_size
 
@@ -205,10 +201,9 @@ class TransformerDecoderLayer(nn.Module):
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
 
-        if self.use_FFNN:
-            tgt2 = self.linear2(self.dropout(F.relu(self.linear1(tgt))))
-            tgt = tgt + self.dropout3(tgt2)
-            tgt = self.norm3(tgt)
+        tgt2 = self.linear2(self.dropout(F.relu(self.linear1(tgt))))
+        tgt = tgt + self.dropout3(tgt2)
+        tgt = self.norm3(tgt)
 
         if output_weights:
             return tgt, (weight_text, weight_attn)
@@ -217,11 +212,11 @@ class TransformerDecoderLayer(nn.Module):
 
 class TransformerEncoder(nn.Module):
 
-    def __init__(self, encoder_layer, num_layers=1):
+    def __init__(self, encoder_layer, num_layers=1, norm=None):
         super(TransformerEncoder, self).__init__()
         self.layers = _get_clones(encoder_layer, num_layers)
         self.num_layers = num_layers
-        # self.norm = nn.LayerNorm(encoder_layer.feature_size)
+        self.norm = norm
 
     def forward(self, img_features, output_weights=False):
         output = img_features
@@ -231,7 +226,8 @@ class TransformerEncoder(nn.Module):
             output, weight = self.layers[i](output, output_weights)
             weights.append(weight)
 
-        # output = self.norm(output)
+        if self.norm is not None:
+            output = self.norm(output)
 
         if output_weights:
             return output, weights
@@ -239,30 +235,29 @@ class TransformerEncoder(nn.Module):
             return output, None
 
 class TransformerEncoderLayer(nn.Module):
-    def __init__(self, feature_size, nhead, attn_type, use_FFNN=True, dim_feedforward=2048, dropout=0.1):
+    def __init__(self, attn_size, nhead, attn_type, dim_feedforward=2048, dropout=0.1):
         super(TransformerEncoderLayer, self).__init__()
-        self.feature_size = feature_size
-        self.self_attn = get_attention(attn_type, feature_size, nhead)
-        self.norm1 = nn.LayerNorm(feature_size)
+        self.attn_size = attn_size
+        self.self_attn = get_attention(attn_type, attn_size, nhead)
+        self.norm1 = nn.LayerNorm(attn_size)
         self.dropout1 = nn.Dropout(dropout)
 
-        self.use_FFNN = use_FFNN
-        if self.use_FFNN:
-            # Implementation of Feedforward model
-            self.linear1 = nn.Linear(feature_size, dim_feedforward)
-            self.dropout = nn.Dropout(dropout)
-            self.linear2 = nn.Linear(dim_feedforward, feature_size)
-            self.norm2 = nn.LayerNorm(feature_size)
-            self.dropout2 = nn.Dropout(dropout)
+        # Implementation of Feedforward model
+        self.linear1 = nn.Linear(attn_size, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, attn_size)
+        self.norm2 = nn.LayerNorm(attn_size)
+        self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, img_features, output_weights=False):
         img_features2, weight = self.self_attn(img_features, img_features, img_features, output_weights=output_weights)
         img_features = img_features + self.dropout1(img_features2)
         img_features = self.norm1(img_features)
-        if self.use_FFNN:
-            img_features2 = self.linear2(self.dropout(F.relu(self.linear1(img_features))))
-            img_features = img_features + self.dropout2(img_features2)
-            img_features = self.norm2(img_features)
+
+        img_features2 = self.linear2(self.dropout(F.relu(self.linear1(img_features))))
+        img_features = img_features + self.dropout2(img_features2)
+        img_features = self.norm2(img_features)
+
         if output_weights:
             return img_features, weight
         else:

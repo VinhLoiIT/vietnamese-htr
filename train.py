@@ -4,15 +4,19 @@ import datetime
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
+
+from ignite.utils import setup_logger
 from ignite.engine import Engine, Events
-from ignite.handlers import Timer
+from ignite.handlers import DiskSaver
 from ignite.metrics import Accuracy, Loss, RunningAverage
-from torch.utils.tensorboard import SummaryWriter
+from ignite.contrib.handlers.tensorboard_logger import TensorboardLogger, OutputHandler, global_step_from_engine
+from ignite.contrib.handlers import ProgressBar
 from torchvision import transforms
 
 from data import get_data_loader, get_vocab, PAD_CHAR, EOS_CHAR
-from model import Seq2Seq, Transformer, DenseNetFE, SqueezeNetFE
+from model import Seq2Seq, Transformer, DenseNetFE, SqueezeNetFE, EfficientNetFE
 from utils import ScaleImageByHeight, HandcraftFeature
 from metrics import CharacterErrorRate, WordErrorRate
 
@@ -45,6 +49,10 @@ def flatten_config(config, prefix=''):
     return flatten
 
 def main(args):
+    logger = logging.getLogger('MainTraining')
+    device = f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu'
+    logger.info('Device = {}'.format(device))
+
     if args.resume:
         logger.info('Resuming from {}'.format(args.resume))
         checkpoint = torch.load(args.resume, map_location=device)
@@ -55,20 +63,15 @@ def main(args):
 
     config = root_config['common']
     vocab = get_vocab(config['dataset'])
-    logger = logging.getLogger('MainTraining')
-
-    device = f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu'
-    logger.info('Device = {}'.format(device))
     logger.info('Vocab size = {}'.format(vocab.vocab_size))
-
 
     if config['cnn'] == 'densenet':
         cnn_config = root_config['densenet']
-        cnn = DenseNetFE(cnn_config['depth'],
-                         cnn_config['n_blocks'],
-                         cnn_config['growth_rate'])
+        cnn = DenseNetFE()
     elif config['cnn'] == 'squeezenet':
         cnn = SqueezeNetFE()
+    elif config['cnn'] == 'efficientnet':
+        cnn = EfficientNetFE()
     else:
         raise ValueError('Unknow CNN {}'.format(config['cnn']))
 
@@ -117,7 +120,7 @@ def main(args):
                               weight_decay=config['weight_decay'])
     else:
         raise ValueError('Unknow optimizer {}'.format(config['optimizer']))
-    reduce_lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 'min',
         patience=config['n_epochs_decrease_lr'],
         min_lr=config['end_learning_rate'],
@@ -126,7 +129,7 @@ def main(args):
     if args.resume:
         model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
-        reduce_lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+        lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
 
     image_transform = transforms.Compose([
         ScaleImageByHeight(config['scale_height']),
@@ -137,9 +140,11 @@ def main(args):
     ])
 
     train_loader = get_data_loader(config['dataset'], 'trainval' if args.trainval else 'train', config['batch_size'],
+                                   4,
                                    image_transform, vocab, args.debug)
 
     val_loader = get_data_loader(config['dataset'], 'val', config['batch_size'],
+                                 4,
                                  image_transform, vocab, args.debug)
 
     log_dir = datetime.datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
@@ -149,8 +154,8 @@ def main(args):
     if args.debug:
         log_dir += '_debug'
     log_dir = os.path.join(args.log_root, log_dir)
-    writer = SummaryWriter(log_dir=log_dir)
-    CKPT_DIR = os.path.join(writer.get_logdir(), 'weights')
+    tb_logger = TensorboardLogger(log_dir)
+    CKPT_DIR = os.path.join(tb_logger.writer.get_logdir(), 'weights')
     if not os.path.exists(CKPT_DIR):
         os.mkdir(CKPT_DIR)
 
@@ -158,16 +163,16 @@ def main(args):
         model.train()
         optimizer.zero_grad()
 
-        imgs, targets, targets_onehot, lengths = batch
+        imgs, targets, lengths = batch
 
         imgs = imgs.to(device)
         targets = targets.to(device)
-        targets_onehot = targets_onehot.to(device)
+        targets_onehot = F.one_hot(targets, vocab.vocab_size).to(device)
 
-        outputs = model(imgs, targets_onehot[:-1].transpose(0,1))
+        outputs = model(imgs, targets_onehot[:, :-1])
 
-        packed_outputs = pack_padded_sequence(outputs, (lengths - 1).squeeze(-1), batch_first=True)[0]
-        packed_targets = pack_padded_sequence(targets[1:].transpose(0,1).squeeze(-1), (lengths - 1).squeeze(-1), batch_first=True)[0]
+        packed_outputs = pack_padded_sequence(outputs, (lengths - 1), batch_first=True)[0]
+        packed_targets = pack_padded_sequence(targets[:, 1:], (lengths - 1), batch_first=True)[0]
 
         loss = criterion(packed_outputs, packed_targets)
         loss.backward()
@@ -179,131 +184,86 @@ def main(args):
         model.eval()
 
         with torch.no_grad():
-            imgs, targets, targets_onehot, lengths = batch
+            imgs, targets, lengths = batch
 
             imgs = imgs.to(device)
             targets = targets.to(device)
-            targets_onehot = targets_onehot.to(device)
+            targets_onehot = F.one_hot(targets, vocab.vocab_size).to(device)
 
-            logits = model(imgs, targets_onehot[:-1].transpose(0,1))
+            logits = model(imgs, targets_onehot[:, :-1])
             if multi_gpus:
-                outputs, _ = model.module.greedy(imgs, targets_onehot[[0]].transpose(0,1), output_weights=False)
+                outputs, _ = model.module.greedy(imgs, targets_onehot[:, [0]], output_weights=False)
             else:
-                outputs, _ = model.greedy(imgs, targets_onehot[[0]].transpose(0,1), output_weights=False)
+                outputs, _ = model.greedy(imgs, targets_onehot[:, [0]], output_weights=False)
             outputs = outputs.topk(1, -1)[1]
 
-            logits = pack_padded_sequence(logits, (lengths - 1).squeeze(-1), batch_first=True)[0]
-            packed_targets = pack_padded_sequence(targets[1:].transpose(0,1).squeeze(-1), (lengths - 1).squeeze(-1), batch_first=True)[0]
+            logits = pack_padded_sequence(logits, (lengths - 1), batch_first=True)[0]
+            packed_targets = pack_padded_sequence(targets[:, 1:], (lengths - 1), batch_first=True)[0]
 
-            return logits, packed_targets, outputs, targets[1:].transpose(0,1)
+            return logits, packed_targets, outputs, targets[:, 1:]
 
     trainer = Engine(step_train)
+    RunningAverage(Loss(criterion)).attach(trainer, 'Loss')
+    RunningAverage(Accuracy()).attach(trainer, 'Accuracy')
+
+    train_pbar = ProgressBar()
+    train_pbar.attach(trainer, ['Loss', 'Accuracy'])
+    trainer.logger = setup_logger('Trainer')
+    tb_logger.attach(trainer,
+                     event_name=Events.ITERATION_COMPLETED,
+                     log_handler=OutputHandler(tag='Train',
+                                               metric_names=['Loss', 'Accuracy']))
+
     evaluator = Engine(step_val)
+    RunningAverage(Loss(criterion, output_transform=lambda output: output[:2])).attach(evaluator, 'Loss')
+    RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR], output_transform=lambda output: output[2:])).attach(evaluator, 'CER')
+    RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR], output_transform=lambda output: output[2:])).attach(evaluator, 'WER')
 
-    RunningAverage(Loss(criterion)).attach(trainer, 'running_train_loss')
-    RunningAverage(Accuracy()).attach(trainer, 'running_train_acc')
-    RunningAverage(Loss(criterion, output_transform=lambda output: output[:2])).attach(evaluator, 'running_val_loss')
-    RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR], batch_first=True, output_transform=lambda output: output[2:])).attach(evaluator, 'running_val_cer')
-    RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR], batch_first=True, output_transform=lambda output: output[2:])).attach(evaluator, 'running_val_wer')
-    training_timer = Timer(average=True).attach(trainer)
-
-    epoch_train_timer = Timer(True).attach(trainer,
-                                           start=Events.EPOCH_STARTED,
-                                           pause=Events.EPOCH_COMPLETED,
-                                           step=Events.EPOCH_COMPLETED)
-    batch_train_timer = Timer(True).attach(trainer)
-
-    validate_timer = Timer(average=True).attach(evaluator)
-
-    @trainer.on(Events.STARTED)
-    def start_training(engine):
-        logger.info('='*60)
-        logger.info(flatten_config(root_config))
-        logger.info('='*60)
-        logger.info(model)
-        logger.info('='*60)
-        logger.info('Start training..')
-
-    @trainer.on(Events.COMPLETED)
-    def end_training(engine):
-        logger.info('Training completed!!')
-        logger.info('Total training time: {:3.2f}s'.format(training_timer.value()))
-
-    @trainer.on(Events.ITERATION_COMPLETED)
-    def log_training_tensorboard(engine):
-        state = engine.state
-        writer.add_scalar("Train/Loss", state.metrics['running_train_loss'], state.iteration)
-        writer.add_scalar("Train/Accuracy", state.metrics['running_train_acc'], state.iteration)
-
-    @trainer.on(Events.ITERATION_COMPLETED(every=args.log_interval))
-    def log_training_terminal(engine):
-        batch_train_timer.pause()
-        batch_train_timer.step()
-        logger.info("Train - Epoch: {} - Iter {} - Accuracy: {:.3f} Loss: {:.3f} Avg Time: {:.2f}"
-              .format(engine.state.epoch, engine.state.iteration,
-                      engine.state.metrics['running_train_acc'],
-                      engine.state.metrics['running_train_loss'],
-                      batch_train_timer.value()))
-        batch_train_timer.resume()
+    eval_pbar = ProgressBar()
+    eval_pbar.attach(evaluator, ['Loss', 'CER', 'WER'])
+    evaluator.logger = setup_logger('Evaluator')
+    tb_logger.attach(evaluator,
+                     log_handler=OutputHandler(tag='Validation',
+                                               metric_names=['Loss', 'CER', 'WER'],
+                                               global_step_transform=global_step_from_engine(trainer)),
+                                               event_name=Events.EPOCH_COMPLETED)
 
     @trainer.on(Events.EPOCH_COMPLETED)
     def validate(engine):
-        writer.add_scalar("Train/Time", epoch_train_timer.value(), engine.state.epoch)
-        logger.info('Train - Epoch: {} - Avg Time: {:3.2f}s'
-              .format(engine.state.epoch, epoch_train_timer.value()))
         state = evaluator.run(val_loader)
-        logger.info('Validate - Epoch: {} - Avg Time: {:3.2f}s'
-              .format(engine.state.epoch, validate_timer.value()))
-        writer.add_scalar("Validation/Loss",
-                          state.metrics['running_val_loss'],
-                          engine.state.epoch) # use trainer's state.epoch
-        writer.add_scalar("Validation/CER",
-                          state.metrics['running_val_cer'],
-                          engine.state.epoch)
-        writer.add_scalar("Validation/WER",
-                          state.metrics['running_val_wer'],
-                          engine.state.epoch)
-        writer.add_scalar("Validation/Time", validate_timer.value(), engine.state.epoch)
+        lr_scheduler.step(state.metrics['Loss'])
 
-    @evaluator.on(Events.ITERATION_COMPLETED(every=args.log_interval))
-    def log_validation_terminal(engine):
-        logger.info("Validate - Iter {}/{} - CER: {:.3f} WER: {:.3f} Avg loss: {:.3f}"
-              .format(engine.state.iteration, len(val_loader),
-                      engine.state.metrics['running_val_cer'],
-                      engine.state.metrics['running_val_wer'],
-                      engine.state.metrics['running_val_loss']))
-
-    @evaluator.on(Events.COMPLETED)
-    def update_scheduler(engine):
-        found_better = reduce_lr_scheduler.is_better(engine.state.metrics['running_val_loss'], reduce_lr_scheduler.best)
-        reduce_lr_scheduler.step(engine.state.metrics['running_val_loss'])
-
+    @evaluator.on(Events.EPOCH_COMPLETED)
+    def save_checkpoint(engine: Engine):
+        is_better = lr_scheduler.is_better(engine.state.metrics['Loss'], lr_scheduler.best)
+        lr_scheduler.step(engine.state.metrics['Loss'])
         to_save = {
             'config': root_config,
             'model': model.state_dict() if not multi_gpus else model.module.state_dict(),
             'optimizer': optimizer.state_dict(),
-            'lr_scheduler': reduce_lr_scheduler.state_dict()
+            'lr_scheduler': lr_scheduler.state_dict(),
+            'trainer': trainer.state_dict(),
         }
 
-        filename = 'weights_val_loss_{:.3f}_cer_{:.3f}_wer_{:.3f}.pt'.format(engine.state.metrics['running_val_loss'], engine.state.metrics['running_val_cer'], engine.state.metrics['running_val_wer'])
-        torch.save(to_save, os.path.join(CKPT_DIR, filename))
+        torch.save(to_save, os.path.join(CKPT_DIR, f'weights_epoch={trainer.state.epoch}_loss={engine.state.metrics["Loss"]:.3f}.pt'))
+        if is_better:
+            torch.save(to_save, os.path.join(CKPT_DIR, 'BEST.pt'))
+            best_metrics.update(engine.state.metrics)
 
-        if found_better:
-            torch.save(to_save, os.path.join(CKPT_DIR, 'BEST_weights.pt'))
-            best_metrics.update({
-                'metric/val_CER': evaluator.state.metrics['running_val_cer'],
-                'metric/val_WER': evaluator.state.metrics['running_val_wer'],
-                'metric/val_loss': evaluator.state.metrics['running_val_loss'],
-                'metric/training_time': training_timer.value(),
-            })
-
-    trainer.run(train_loader, max_epochs=5 if args.debug else config['max_epochs'])
+    logger.info('='*60)
+    logger.info(model)
+    logger.info('='*60)
+    logger.info(flatten_config(root_config))
+    logger.info('='*60)
+    if args.resume:
+        trainer.load_state_dict(checkpoint['trainer'])
+    logger.info('Start training..')
+    trainer.run(train_loader, max_epochs=5 if args.debug else config['max_epochs'], seed=seed)
 
     print(best_metrics)
-    writer.add_hparams(flatten_config(config), best_metrics)
-    writer.flush()
-
-    writer.close()
+    tb_logger.writer.add_hparams(flatten_config(config), best_metrics)
+    tb_logger.writer.flush()
+    tb_logger.close()
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)

@@ -23,7 +23,7 @@ tf:
     attn_size: 256
     use_encoder: False
     use_FFNN: True
-    encoder_attn: scaledotproduc
+    encoder_attn: scaledotproduct
     decoder_attn: additive
     encoder_decoder_attn: additive
     direct_additive: False

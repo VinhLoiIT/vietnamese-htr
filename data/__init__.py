@@ -44,16 +44,16 @@ def get_vocab(dataset):
     vocab = Vocab(dataset)
     return vocab
 
-def get_data_loader(dataset, partition, batch_size, transform=None, vocab=None, debug=False):
+def get_data_loader(dataset, partition, batch_size, num_workers=1, transform=None, vocab=None, debug=False):
     data = _get_dataset_partition_helper(dataset, partition, transform)
     if vocab is None:
         vocab = get_vocab(dataset)
 
     if debug:
         loader = DataLoader(data, batch_size=batch_size,
-                            shuffle=False, collate_fn=vocab, num_workers=4,
+                            shuffle=False, collate_fn=vocab, num_workers=num_workers,
                             sampler=SubsetRandomSampler(np.random.permutation(min(batch_size * 5, len(data)))))
     else:
         loader = DataLoader(data, batch_size=batch_size,
-                            shuffle=False, collate_fn=vocab, num_workers=4)
+                            shuffle=False, collate_fn=vocab, num_workers=num_workers)
     return loader
