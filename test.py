@@ -5,16 +5,21 @@ import os
 import editdistance as ed
 import numpy as np
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 from torchvision import transforms
 
-from data import get_data_loader, get_vocab, EOS_CHAR
+from dataset import get_data_loader, get_vocab, EOS_CHAR
 from model import DenseNetFE, Seq2Seq, Transformer
 from utils import ScaleImageByHeight, HandcraftFeature
 from metrics import CharacterErrorRate, WordErrorRate
 
 from ignite.engine import Engine, Events
 from ignite.metrics import RunningAverage
+from ignite.contrib.handlers import ProgressBar
+from ignite.utils import setup_logger
+
+from PIL import ImageOps
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -26,10 +31,7 @@ def main(args):
     config = checkpoint['config']
 
     if config['common']['cnn'] == 'densenet':
-        cnn_config = config['densenet']
-        cnn = DenseNetFE(cnn_config['depth'],
-                         cnn_config['n_blocks'],
-                         cnn_config['growth_rate'])
+        cnn = DenseNetFE()
 
     vocab = get_vocab(config['common']['dataset'])
 
@@ -46,6 +48,7 @@ def main(args):
     model.load_state_dict(checkpoint['model'])
 
     test_transform = transforms.Compose([
+        ImageOps.invert,
         ScaleImageByHeight(config['common']['scale_height']),
         HandcraftFeature() if config['common']['use_handcraft'] else transforms.Grayscale(3),
         transforms.ToTensor(),
@@ -53,7 +56,7 @@ def main(args):
                              std=[0.229, 0.224, 0.225]),
     ])
 
-    test_loader = get_data_loader(config['common']['dataset'], args.parition, config['common']['batch_size'],
+    test_loader = get_data_loader(config['common']['dataset'], args.parition, 8, 1,
                                   test_transform, vocab, debug=args.debug)
 
     if args.oneshot:
@@ -75,45 +78,42 @@ def main(args):
 
     def step_val(engine, batch):
         model.eval()
+
         with torch.no_grad():
-            imgs, targets, targets_onehot, lengths = batch
+            imgs, targets, _ = batch
 
             imgs = imgs.to(device)
             targets = targets.to(device)
-            targets_onehot = targets_onehot.to(device)
+            targets_onehot = F.one_hot(targets, vocab.vocab_size).to(device)
 
-            outputs, _ = model.greedy(imgs, targets_onehot[[0]].transpose(0,1))
-            outputs = outputs.topk(1,-1)[1]
+            outputs, _ = model.greedy(imgs, targets_onehot[:, [0]], output_weights=False)
+            outputs = outputs.topk(1, -1)[1]
 
-            return outputs, targets[1:].transpose(0,1)
+            return outputs, targets[:, 1:]
 
     evaluator = Engine(step_val)
-    RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR], batch_first=True)).attach(evaluator, 'running_cer')
-    RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR], batch_first=True)).attach(evaluator, 'running_wer')
-
-    @evaluator.on(Events.STARTED)
-    def start_eval(engine):
-        print(config)
-        print('='*60)
-        print(model)
-        print('Start evaluating..')
-
-    @evaluator.on(Events.ITERATION_COMPLETED(every=args.log_interval))
-    def log_terminal(engine):
-        print('Iter {}/{} - CER: {:.3f} WER: {:.3f}'.format(engine.state.iteration, len(test_loader), engine.state.metrics['running_cer'], engine.state.metrics['running_wer']))
+    RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR])).attach(evaluator, 'CER')
+    RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR])).attach(evaluator, 'WER')
+    
+    eval_pbar = ProgressBar(ncols=0, ascii=True)
+    eval_pbar.attach(evaluator, ['CER', 'WER'])
+    evaluator.logger = setup_logger('Evaluator')
 
     @evaluator.on(Events.COMPLETED)
     def finish_eval(engine):
         print('Evaluate Complete. Write down to tensorboard...')
-        print('Iter {}/{} - CER: {:.3f} WER: {:.3f}'.format(engine.state.iteration, len(test_loader), engine.state.metrics['running_cer'], engine.state.metrics['running_wer']))
         metrics = {
-            'hparam/CER': engine.state.metrics['running_cer'],
-            'hparam/WER': engine.state.metrics['running_wer'],
+            'hparam/CER': engine.state.metrics['CER'],
+            'hparam/WER': engine.state.metrics['WER'],
         }
 
         with open('result.csv', 'w+') as f:
-            print(engine.state.metrics['running_cer'], ',', engine.state.metrics['running_wer'], file=f)
+            print(engine.state.metrics['CER'], ',', engine.state.metrics['WER'], file=f)
 
+    print(config)
+    print('='*60)
+    print(model)
+    print('Start evaluating..')
     evaluator.run(test_loader)
 
 if __name__ == '__main__':

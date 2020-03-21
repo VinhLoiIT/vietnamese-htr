@@ -11,14 +11,14 @@ def _get_dataset_partition_helper(dataset, partition, transform):
 
     if dataset == 'vnondb':
         if partition == 'test':
-            return VNOnDB('./data/VNOnDB/word_test', './data/VNOnDB/test_word.csv', transform)
+            return VNOnDB('./data/VNOnDB/test_word', './data/VNOnDB/test_word.csv', transform)
         if partition == 'train':
-            return VNOnDB('./data/VNOnDB/word_train', './data/VNOnDB/train_word.csv', transform)
+            return VNOnDB('./data/VNOnDB/train_word', './data/VNOnDB/train_word.csv', transform)
         if partition == 'val':
-            return VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv', transform)
+            return VNOnDB('./data/VNOnDB/validation_word', './data/VNOnDB/validation_word.csv', transform)
         if partition == 'trainval':
-            train = VNOnDB('./data/VNOnDB/word_train', './data/VNOnDB/train_word.csv', transform)
-            val = VNOnDB('./data/VNOnDB/word_val', './data/VNOnDB/validation_word.csv', transform)
+            train = VNOnDB('./data/VNOnDB/train_word', './data/VNOnDB/train_word.csv', transform)
+            val = VNOnDB('./data/VNOnDB/validation_word', './data/VNOnDB/validation_word.csv', transform)
             return ConcatDataset([train, val])
         return None
     elif dataset == 'rimes':

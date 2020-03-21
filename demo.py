@@ -9,7 +9,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from torchvision import transforms
 
-from data import get_data_loader, get_vocab, EOS_CHAR, SOS_CHAR
+from datasets import get_data_loader, get_vocab, EOS_CHAR, SOS_CHAR
 from model import DenseNetFE, Seq2Seq, Transformer
 from utils import ScaleImageByHeight, HandcraftFeature
 from metrics import CharacterErrorRate, WordErrorRate

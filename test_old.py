@@ -8,7 +8,7 @@ import torch
 import tqdm
 from torchvision import transforms
 
-from data import EOS_CHAR, get_data_loader, get_vocab
+from dataset import EOS_CHAR, get_data_loader, get_vocab
 from model import DenseNetFE, Seq2Seq, Transformer
 from utils import ScaleImageByHeight, HandcraftFeature
 

@@ -12,23 +12,33 @@ class Transformer(nn.Module):
         super().__init__()
 
         self.cnn = cnn
-
-        if config.get('use_encoder', True):
-            encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=config['encoder_nhead'], attn_type=config['encoder_attn'], use_FFNN=config['use_FFNN'])
-            self.encoder = TransformerEncoder(encoder_layer, num_layers=config['encoder_nlayers'])
-        else:
-            self.encoder = None
-        decoder_layer = TransformerDecoderLayer(self.cnn.n_features, vocab_size, config['attn_size'],
-                                                nhead_vocab=config['decoder_nhead'], nhead_attn=config['encoder_decoder_nhead'],
-                                                decoder_attn=config['decoder_attn'], encoder_decoder_attn=config['encoder_decoder_attn'],
-                                                direct_additive=config['direct_additive'], use_FFNN=config['use_FFNN'])
-        self.decoder = TransformerDecoder(config['attn_size'], decoder_layer, num_layers=config['decoder_nlayers'])
-
+        self.Ic = nn.Linear(self.cnn.n_features, config['attn_size'])
+        self.Vc = nn.Linear(vocab_size, config['attn_size'])
         self.character_distribution = nn.Linear(config['attn_size'], vocab_size)
 
-    def generate_subsquence_mask(self, batch_size, size):
-        mask = torch.tril(torch.ones(batch_size, size, size)).bool()
-        return mask
+        self.transformer = nn.Transformer(
+                d_model=config['attn_size'],
+                nhead=config['nhead'],
+                num_encoder_layers=config['encoder_nlayers'],
+                num_decoder_layers=config['decoder_nlayers'],
+                dim_feedforward=config['dim_feedforward'],
+                dropout=config['dropout'],
+        )
+        # if config.get('use_encoder', True):
+        #     encoder_layer = TransformerEncoderLayer(self.cnn.n_features, nhead=config['encoder_nhead'], attn_type=config['encoder_attn'], use_FFNN=config['use_FFNN'])
+        #     self.encoder = TransformerEncoder(encoder_layer, num_layers=config['encoder_nlayers'])
+        # else:
+        #     self.encoder = None
+        # decoder_layer = TransformerDecoderLayer(self.cnn.n_features, vocab_size, config['attn_size'],
+        #                                         nhead_vocab=config['decoder_nhead'], nhead_attn=config['encoder_decoder_nhead'],
+        #                                         decoder_attn=config['decoder_attn'], encoder_decoder_attn=config['encoder_decoder_attn'],
+        #                                         direct_additive=config['direct_additive'], use_FFNN=config['use_FFNN'])
+        # self.decoder = TransformerDecoder(config['attn_size'], decoder_layer, num_layers=config['decoder_nlayers'])
+
+
+    # def generate_subsquence_mask(self, batch_size, size):
+    #     mask = torch.tril(torch.ones(batch_size, size, size)).bool()
+    #     return mask
 
     def forward(self, images, targets, teacher_forcing_ratio=0.5):
         '''
@@ -42,19 +52,28 @@ class Transformer(nn.Module):
 
         # Step 1: CNN Feature Extraction
         image_features = self.cnn(images) # [B, C', H', W']
-        image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
+        image_features = image_features.transpose(-2, -1) # [B, C', W', H']
+        image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=W'xH']
         image_features = image_features.transpose(1,2) # [B, S, C']
+        image_features = self.Ic(image_features) # [B,S,A]
+        image_features = image_features.transpose(0, 1) # [S, B, A]
 
         # Step 2: Encoder forwarding
-        if self.encoder is not None:
-            image_features, _ = self.encoder(image_features, output_weights=False)
+        # if self.encoder is not None:
+        #     image_features, _ = self.encoder(image_features, output_weights=False)
 
         # Step 3: Decoder forwarding
-        targets = targets.float()
-        max_length = targets.shape[1]
-        attn_mask = self.generate_subsquence_mask(batch_size, max_length).to(targets.device)
-        output, _ = self.decoder(image_features, targets, attn_mask)
-        output = self.character_distribution(output)
+        # targets = targets.float()
+        # max_length = targets.shape[1]
+        # attn_mask = self.generate_subsquence_mask(batch_size, max_length).to(targets.device)
+        # output, _ = self.decoder(image_features, targets, attn_mask)
+        # output = self.character_distribution(output)
+
+        targets = self.Vc(targets.float()).transpose(0, 1) # [L,B,A]
+        max_length = targets.size(0)
+        attn_mask = nn.Transformer.generate_square_subsequent_mask(None, max_length).to(targets.device)
+        output = self.transformer(image_features, targets, tgt_mask=attn_mask)
+        output = self.character_distribution(output.transpose(0,1))
         return output
 
     def greedy(self, images, start_input, output_weights=False, max_length=10):
@@ -70,39 +89,71 @@ class Transformer(nn.Module):
 
         # Step 1: CNN Feature Extraction
         image_features = self.cnn(images) # [B, C', H', W']
+        image_features = image_features.transpose(-2, -1) # [B, C', W', H']
         image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
         image_features = image_features.transpose(1,2) # [B,S,C']
+        image_features = self.Ic(image_features).transpose(0, 1) # [S,B,A]
 
-        # Step 2: Encoder forwarding
-        if self.encoder is not None:
-            image_features, weight_encoder = self.encoder(image_features, output_weights=output_weights)
-        else:
-            weight_encoder = None
-            # image_features: [S,B,C']
-            # weight_encoder: None or list of **num_layers** tensors of shape [B,S,S]
-        # Step 3: Decoder forwarding
-        predicts = start_input.float()
+        predicts = start_input
+        attn_mask = nn.Transformer.generate_square_subsequent_mask(None, max_length).to(predicts.device)
         for t in range(max_length):
-            attn_mask = self.generate_subsquence_mask(batch_size, predicts.size(1))
-            output, weight_decoder = self.decoder(image_features, predicts, attn_mask, output_weights=output_weights)
-            output = self.character_distribution(output[:,[-1]])
+            targets = self.Vc(predicts.float()).transpose(0, 1) # [T,B,A]
+            output = self.transformer(image_features, targets, tgt_mask=attn_mask[:t+1, :t+1])
+            output = output.transpose(0, 1) # [B,T,A]
+            output = self.character_distribution(output[:,[-1]]) # [B,1,V]
             output = F.softmax(output, -1)
             index = output.topk(1, -1)[1]
-            output = torch.zeros_like(output)
+            output = torch.zeros_like(output).long()
             output.scatter_(-1, index, 1)
             predicts = torch.cat([predicts, output], dim=1)
+        return predicts[:,1:], None #TODO: return weight
+
+    # def greedy(self, images, start_input, output_weights=False, max_length=10):
+    #     '''
+    #     Inputs:
+    #     :param images: [B,C,H,W]
+    #     :param start_input: Tensor of [B,1,V], which is <start> character in onehot
+    #     Return:
+    #         - outputs: [B,L,V]
+    #         - weights: None #TODO: not implement yet
+    #     '''
+    #     batch_size = images.size(0)
+
+    #     # Step 1: CNN Feature Extraction
+    #     image_features = self.cnn(images) # [B, C', H', W']
+    #     image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
+    #     image_features = image_features.transpose(1,2) # [B,S,C']
+
+    #     # Step 2: Encoder forwarding
+    #     if self.encoder is not None:
+    #         image_features, weight_encoder = self.encoder(image_features, output_weights=output_weights)
+    #     else:
+    #         weight_encoder = None
+    #         # image_features: [S,B,C']
+    #         # weight_encoder: None or list of **num_layers** tensors of shape [B,S,S]
+    #     # Step 3: Decoder forwarding
+    #     predicts = start_input.float()
+    #     for t in range(max_length):
+    #         attn_mask = self.generate_subsquence_mask(batch_size, predicts.size(1))
+    #         output, weight_decoder = self.decoder(image_features, predicts, attn_mask, output_weights=output_weights)
+    #         output = self.character_distribution(output[:,[-1]])
+    #         output = F.softmax(output, -1)
+    #         index = output.topk(1, -1)[1]
+    #         output = torch.zeros_like(output)
+    #         output.scatter_(-1, index, 1)
+    #         predicts = torch.cat([predicts, output], dim=1)
 
 
-        if output_weights:
-            # list of 2-tuple to tuple of two list
-            # text_weight, en_de_weight = zip(*weight_decoder)
-            # en_de_weight = torch.cat(en_de_weight, dim=1)
-            # text_weight = torch.cat(text_weight, dim=1)
+    #     if output_weights:
+    #         # list of 2-tuple to tuple of two list
+    #         # text_weight, en_de_weight = zip(*weight_decoder)
+    #         # en_de_weight = torch.cat(en_de_weight, dim=1)
+    #         # text_weight = torch.cat(text_weight, dim=1)
 
-            # weight_decoder: None or list of **num_layers** tuples, each tuple is ([B,T,T], [B,T,S])
-            return predicts[:,1:], (weight_encoder, weight_decoder)
-        else:
-            return predicts[:,1:], None
+    #         # weight_decoder: None or list of **num_layers** tuples, each tuple is ([B,T,T], [B,T,S])
+    #         return predicts[:,1:], (weight_encoder, weight_decoder)
+    #     else:
+    #         return predicts[:,1:], None
 
 class PositionalEncoding(nn.Module):
 

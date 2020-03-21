@@ -15,12 +15,13 @@ from ignite.contrib.handlers.tensorboard_logger import TensorboardLogger, Output
 from ignite.contrib.handlers import ProgressBar
 from torchvision import transforms
 
-from data import get_data_loader, get_vocab, PAD_CHAR, EOS_CHAR
+from dataset import get_data_loader, get_vocab, PAD_CHAR, EOS_CHAR
 from model import Seq2Seq, Transformer, DenseNetFE, SqueezeNetFE, EfficientNetFE
 from utils import ScaleImageByHeight, HandcraftFeature
 from metrics import CharacterErrorRate, WordErrorRate
 
 from torch.nn.utils.rnn import pack_padded_sequence
+from PIL import ImageOps
 
 import logging
 
@@ -71,7 +72,7 @@ def main(args):
     elif config['cnn'] == 'squeezenet':
         cnn = SqueezeNetFE()
     elif config['cnn'] == 'efficientnet':
-        cnn = EfficientNetFE()
+        cnn = EfficientNetFE('efficientnet-b1')
     else:
         raise ValueError('Unknow CNN {}'.format(config['cnn']))
 
@@ -132,6 +133,7 @@ def main(args):
         lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
 
     image_transform = transforms.Compose([
+        ImageOps.invert,
         ScaleImageByHeight(config['scale_height']),
         HandcraftFeature() if config['use_handcraft'] else transforms.Grayscale(3),
         transforms.ToTensor(),
@@ -140,11 +142,11 @@ def main(args):
     ])
 
     train_loader = get_data_loader(config['dataset'], 'trainval' if args.trainval else 'train', config['batch_size'],
-                                   4,
+                                   2,
                                    image_transform, vocab, args.debug)
 
     val_loader = get_data_loader(config['dataset'], 'val', config['batch_size'],
-                                 4,
+                                 2,
                                  image_transform, vocab, args.debug)
 
     log_dir = datetime.datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
@@ -206,7 +208,7 @@ def main(args):
     RunningAverage(Loss(criterion)).attach(trainer, 'Loss')
     RunningAverage(Accuracy()).attach(trainer, 'Accuracy')
 
-    train_pbar = ProgressBar()
+    train_pbar = ProgressBar(ncols=0, ascii=True)
     train_pbar.attach(trainer, ['Loss', 'Accuracy'])
     trainer.logger = setup_logger('Trainer')
     tb_logger.attach(trainer,
@@ -219,7 +221,7 @@ def main(args):
     RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR], output_transform=lambda output: output[2:])).attach(evaluator, 'CER')
     RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR], output_transform=lambda output: output[2:])).attach(evaluator, 'WER')
 
-    eval_pbar = ProgressBar()
+    eval_pbar = ProgressBar(ncols=0, ascii=True)
     eval_pbar.attach(evaluator, ['Loss', 'CER', 'WER'])
     evaluator.logger = setup_logger('Evaluator')
     tb_logger.attach(evaluator,

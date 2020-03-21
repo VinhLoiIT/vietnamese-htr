@@ -89,7 +89,7 @@ class VNOnDB(Dataset):
     
     def __getitem__(self, idx):
         image_path = os.path.join(self.image_folder, self.df['id'][idx]+'.png')
-        image = Image.open(image_path)
+        image = Image.open(image_path).convert('L')
         
         if self.image_transform:
             image = self.image_transform(image)
@@ -112,7 +112,7 @@ class RIMES(Dataset):
     
     def __getitem__(self, idx):
         image_path = os.path.join(self.image_folder, self.content[idx].split(' ')[0])
-        image = Image.open(image_path)
+        image = Image.open(image_path).convert('L')
         
         if self.image_transform:
             image = self.image_transform(image)
@@ -158,7 +158,7 @@ class IAM(Dataset):
 
     def __getitem__(self, idx):
         image_path = os.path.join(self.image_folder, self.content[idx][0])
-        image = Image.open(image_path)
+        image = Image.open(image_path).convert('L')
 
         if self.image_transform:
             image = self.image_transform(image)

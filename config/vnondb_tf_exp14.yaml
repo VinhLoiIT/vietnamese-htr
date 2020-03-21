@@ -1,6 +1,6 @@
 common:
     dataset: vnondb
-    cnn: efficientnet
+    cnn: densenet
     optimizer: adam
     batch_size: 16
     scale_height: 96 
@@ -14,17 +14,13 @@ common:
     weight_decay: 0
     momentum: 0.9
 
+densenet:
+
 tf:
     attn_size: 512
-    use_encoder: False
-    use_FFNN: True
-    encoder_attn: scaledotproduct
-    decoder_attn: scaledotproduct
-    encoder_decoder_attn: scaledotproduct
-    direct_additive: False
-    encoder_nhead: 8
-    decoder_nhead: 1
-    encoder_decoder_nhead: 8
+    nhead: 8
+    dim_feedforward: 2048
+    dropout: 0.1
     encoder_nlayers: 1
     decoder_nlayers: 1
 
