@@ -75,11 +75,11 @@ def main(args):
     ])
 
     train_loader = get_data_loader(config['dataset'], 'trainval' if args.trainval else 'train', config['batch_size'],
-                                   2,
+                                   1,
                                    image_transform, args.debug)
 
     val_loader = get_data_loader(config['dataset'], 'val', config['batch_size'],
-                                 2,
+                                 1,
                                  image_transform, args.debug)
     if args.debug:
         vocab = train_loader.dataset.dataset.vocab
@@ -126,8 +126,9 @@ def main(args):
         exit(0)
 
     model.to(device)
-    criterion = nn.CrossEntropyLoss().to(device)
-    # criterion = FocalLoss(2).to(device)
+    # criterion = nn.CrossEntropyLoss(vocab.class_weight).to(device)
+    criterion = FocalLoss(gamma=5, alpha=vocab.class_weight).to(device)
+
     if config['optimizer'] == 'RMSprop':
         optimizer = optim.RMSprop(model.parameters(),
                                   lr=config['start_learning_rate'],
@@ -171,9 +172,8 @@ def main(args):
         optimizer.zero_grad()
 
         imgs, targets = batch.images.to(device), batch.labels.to(device)
-        targets_onehot = F.one_hot(targets, vocab.size).to(device)
 
-        outputs = model(imgs, targets_onehot[:, :-1])
+        outputs = model(imgs, targets[:, :-1])
 
         outputs = pack_padded_sequence(outputs, (batch.lengths - 1), batch_first=True)[0]
         targets = pack_padded_sequence(targets[:, 1:], (batch.lengths - 1), batch_first=True)[0]
@@ -189,12 +189,11 @@ def main(args):
 
         with torch.no_grad():
             imgs, targets = batch.images.to(device), batch.labels.to(device)
-            targets_onehot = F.one_hot(targets, vocab.size).to(device)
-            logits = model(imgs, targets_onehot[:, :-1])
+            logits = model(imgs, targets[:, :-1])
             if multi_gpus:
-                outputs, _ = model.module.greedy(imgs, targets_onehot[:, [0]], output_weights=False)
+                outputs, _ = model.module.greedy(imgs, targets[:, [0]], output_weights=False)
             else:
-                outputs, _ = model.greedy(imgs, targets_onehot[:, [0]], output_weights=False)
+                outputs, _ = model.greedy(imgs, targets[:, [0]], output_weights=False)
             outputs = outputs.topk(1, -1)[1]
 
             logits = pack_padded_sequence(logits, (batch.lengths - 1), batch_first=True)[0]

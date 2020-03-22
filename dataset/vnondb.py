@@ -15,6 +15,7 @@ class VNOnDBVocab(Vocab):
         df = pd.read_csv('./data/VNOnDB/train_word.csv', sep='\t', keep_default_na=False, index_col=0)
         df['counter'] = df['label'].apply(lambda word: Counter([self.SOS] + list(word) + [self.EOS]))
         counter = df['counter'].sum()
+        counter.update({self.UNK: 0})
         self.alphabets = list(counter.keys())
         self.class_weight = torch.tensor([1. / counter[char] if counter[char] > 0 else 0 for char in self.alphabets])
         self.size = len(self.alphabets)

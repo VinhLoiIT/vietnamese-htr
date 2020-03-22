@@ -12,6 +12,7 @@ class Transformer(nn.Module):
         super().__init__()
 
         self.cnn = cnn
+        self.vocab_size = vocab_size
         self.Ic = nn.Linear(self.cnn.n_features, config['attn_size'])
         self.Vc = nn.Linear(vocab_size, config['attn_size'])
         self.character_distribution = nn.Linear(config['attn_size'], vocab_size)
@@ -44,7 +45,7 @@ class Transformer(nn.Module):
         '''
         Inputs:
         :param images: [B,C,H,W]
-        :param targets: Tensor of [B,L,V], which should start with <start> and end with <end>
+        :param targets: Tensor of [B,L], which should start with <start> and end with <end>
         Return:
             - outputs: [B,L,V]
         '''
@@ -57,6 +58,8 @@ class Transformer(nn.Module):
         image_features = image_features.transpose(1,2) # [B, S, C']
         image_features = self.Ic(image_features) # [B,S,A]
         image_features = image_features.transpose(0, 1) # [S, B, A]
+
+        targets = F.one_hot(targets, self.vocab_size).to(images.device)
 
         # Step 2: Encoder forwarding
         # if self.encoder is not None:
@@ -80,7 +83,7 @@ class Transformer(nn.Module):
         '''
         Inputs:
         :param images: [B,C,H,W]
-        :param start_input: Tensor of [B,1,V], which is <start> character in onehot
+        :param start_input: Tensor of [B,1], which is <start> character in onehot
         Return:
             - outputs: [B,L,V]
             - weights: None #TODO: not implement yet
@@ -94,7 +97,7 @@ class Transformer(nn.Module):
         image_features = image_features.transpose(1,2) # [B,S,C']
         image_features = self.Ic(image_features).transpose(0, 1) # [S,B,A]
 
-        predicts = start_input
+        predicts = F.one_hot(start_input, self.vocab_size).to(start_input.device)
         attn_mask = nn.Transformer.generate_square_subsequent_mask(None, max_length).to(predicts.device)
         for t in range(max_length):
             targets = self.Vc(predicts.float()).transpose(0, 1) # [T,B,A]
