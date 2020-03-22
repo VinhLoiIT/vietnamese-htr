@@ -1,6 +1,11 @@
 import numpy as np
-from .dataset import *
-from torch.utils.data import DataLoader, SubsetRandomSampler, ConcatDataset
+from torch.utils.data import ConcatDataset, DataLoader, Subset
+from .vocab import CollateWrapper
+
+from .iam import IAM
+from .rimes import RIMES
+from .vnondb import VNOnDB
+
 
 def _get_dataset_partition_helper(dataset, partition, transform):
     if dataset not in ['vnondb', 'rimes', 'iam']:
@@ -40,20 +45,24 @@ def _get_dataset_partition_helper(dataset, partition, transform):
 
     return None
 
-def get_vocab(dataset):
-    vocab = Vocab(dataset)
-    return vocab
+def collate_fn(batch):
+    return CollateWrapper(batch)
 
-def get_data_loader(dataset, partition, batch_size, num_workers=1, transform=None, vocab=None, debug=False):
+def get_data_loader(dataset, partition, batch_size, num_workers=1, transform=None, debug=False):
     data = _get_dataset_partition_helper(dataset, partition, transform)
-    if vocab is None:
-        vocab = get_vocab(dataset)
+    shuffle = partition == 'train'
 
     if debug:
+        data = Subset(data, np.arange(batch_size*5 + batch_size//2))
         loader = DataLoader(data, batch_size=batch_size,
-                            shuffle=False, collate_fn=vocab, num_workers=num_workers,
-                            sampler=SubsetRandomSampler(np.random.permutation(min(batch_size * 5, len(data)))))
+                            shuffle=shuffle,
+                            collate_fn=collate_fn,
+                            num_workers=num_workers,
+                            pin_memory=True)
     else:
         loader = DataLoader(data, batch_size=batch_size,
-                            shuffle=False, collate_fn=vocab, num_workers=num_workers)
+                            shuffle=shuffle,
+                            collate_fn=collate_fn,
+                            num_workers=num_workers,
+                            pin_memory=True)
     return loader

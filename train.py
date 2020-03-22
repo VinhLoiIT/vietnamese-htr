@@ -15,10 +15,11 @@ from ignite.contrib.handlers.tensorboard_logger import TensorboardLogger, Output
 from ignite.contrib.handlers import ProgressBar
 from torchvision import transforms
 
-from dataset import get_data_loader, get_vocab, PAD_CHAR, EOS_CHAR
+from dataset import get_data_loader
 from model import Seq2Seq, Transformer, DenseNetFE, SqueezeNetFE, EfficientNetFE
 from utils import ScaleImageByHeight, HandcraftFeature
 from metrics import CharacterErrorRate, WordErrorRate
+from losses import FocalLoss
 
 from torch.nn.utils.rnn import pack_padded_sequence
 from PIL import ImageOps
@@ -63,8 +64,28 @@ def main(args):
     best_metrics = dict()
 
     config = root_config['common']
-    vocab = get_vocab(config['dataset'])
-    logger.info('Vocab size = {}'.format(vocab.vocab_size))
+
+    image_transform = transforms.Compose([
+        ImageOps.invert,
+        ScaleImageByHeight(config['scale_height']),
+        transforms.Grayscale(3),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225]),
+    ])
+
+    train_loader = get_data_loader(config['dataset'], 'trainval' if args.trainval else 'train', config['batch_size'],
+                                   2,
+                                   image_transform, args.debug)
+
+    val_loader = get_data_loader(config['dataset'], 'val', config['batch_size'],
+                                 2,
+                                 image_transform, args.debug)
+    if args.debug:
+        vocab = train_loader.dataset.dataset.vocab
+    else:
+        vocab = train_loader.dataset.vocab
+    logger.info('Vocab size = {}'.format(vocab.size))
 
     if config['cnn'] == 'densenet':
         cnn_config = root_config['densenet']
@@ -78,10 +99,10 @@ def main(args):
 
     if args.model == 'tf':
         model_config = root_config['tf']
-        model = Transformer(cnn, vocab.vocab_size, model_config)
+        model = Transformer(cnn, vocab.size, model_config)
     elif args.model == 's2s':
         model_config = root_config['s2s']
-        model = Seq2Seq(cnn, vocab.vocab_size, model_config['hidden_size'], model_config['attn_size'])
+        model = Seq2Seq(cnn, vocab.size, model_config['hidden_size'], model_config['attn_size'])
     else:
         raise ValueError('model should be "tf" or "s2s"')
 
@@ -96,7 +117,7 @@ def main(args):
         print(model)
         model.eval()
         dummy_image_input = torch.rand(config['batch_size'], 3, config['scale_height'], config['scale_height'] * 2)
-        dummy_target_input = torch.rand(config['batch_size'], config['max_length'], vocab.vocab_size)
+        dummy_target_input = torch.rand(config['batch_size'], config['max_length'], vocab.size)
         dummy_output_train = model(dummy_image_input, dummy_target_input)
         dummy_output_greedy, _ = model.greedy(dummy_image_input, dummy_target_input[:,[0]])
         logger.debug(dummy_output_train.shape)
@@ -106,6 +127,7 @@ def main(args):
 
     model.to(device)
     criterion = nn.CrossEntropyLoss().to(device)
+    # criterion = FocalLoss(2).to(device)
     if config['optimizer'] == 'RMSprop':
         optimizer = optim.RMSprop(model.parameters(),
                                   lr=config['start_learning_rate'],
@@ -132,23 +154,6 @@ def main(args):
         optimizer.load_state_dict(checkpoint['optimizer'])
         lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
 
-    image_transform = transforms.Compose([
-        ImageOps.invert,
-        ScaleImageByHeight(config['scale_height']),
-        HandcraftFeature() if config['use_handcraft'] else transforms.Grayscale(3),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225]),
-    ])
-
-    train_loader = get_data_loader(config['dataset'], 'trainval' if args.trainval else 'train', config['batch_size'],
-                                   2,
-                                   image_transform, vocab, args.debug)
-
-    val_loader = get_data_loader(config['dataset'], 'val', config['batch_size'],
-                                 2,
-                                 image_transform, vocab, args.debug)
-
     log_dir = datetime.datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
     log_dir += '_' + args.model
     if args.comment:
@@ -165,33 +170,26 @@ def main(args):
         model.train()
         optimizer.zero_grad()
 
-        imgs, targets, lengths = batch
-
-        imgs = imgs.to(device)
-        targets = targets.to(device)
-        targets_onehot = F.one_hot(targets, vocab.vocab_size).to(device)
+        imgs, targets = batch.images.to(device), batch.labels.to(device)
+        targets_onehot = F.one_hot(targets, vocab.size).to(device)
 
         outputs = model(imgs, targets_onehot[:, :-1])
 
-        packed_outputs = pack_padded_sequence(outputs, (lengths - 1), batch_first=True)[0]
-        packed_targets = pack_padded_sequence(targets[:, 1:], (lengths - 1), batch_first=True)[0]
+        outputs = pack_padded_sequence(outputs, (batch.lengths - 1), batch_first=True)[0]
+        targets = pack_padded_sequence(targets[:, 1:], (batch.lengths - 1), batch_first=True)[0]
 
-        loss = criterion(packed_outputs, packed_targets)
+        loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
 
-        return packed_outputs, packed_targets
+        return outputs, targets
 
     def step_val(engine, batch):
         model.eval()
 
         with torch.no_grad():
-            imgs, targets, lengths = batch
-
-            imgs = imgs.to(device)
-            targets = targets.to(device)
-            targets_onehot = F.one_hot(targets, vocab.vocab_size).to(device)
-
+            imgs, targets = batch.images.to(device), batch.labels.to(device)
+            targets_onehot = F.one_hot(targets, vocab.size).to(device)
             logits = model(imgs, targets_onehot[:, :-1])
             if multi_gpus:
                 outputs, _ = model.module.greedy(imgs, targets_onehot[:, [0]], output_weights=False)
@@ -199,8 +197,8 @@ def main(args):
                 outputs, _ = model.greedy(imgs, targets_onehot[:, [0]], output_weights=False)
             outputs = outputs.topk(1, -1)[1]
 
-            logits = pack_padded_sequence(logits, (lengths - 1), batch_first=True)[0]
-            packed_targets = pack_padded_sequence(targets[:, 1:], (lengths - 1), batch_first=True)[0]
+            logits = pack_padded_sequence(logits, (batch.lengths - 1), batch_first=True)[0]
+            packed_targets = pack_padded_sequence(targets[:, 1:], (batch.lengths - 1), batch_first=True)[0]
 
             return logits, packed_targets, outputs, targets[:, 1:]
 
@@ -208,7 +206,7 @@ def main(args):
     RunningAverage(Loss(criterion)).attach(trainer, 'Loss')
     RunningAverage(Accuracy()).attach(trainer, 'Accuracy')
 
-    train_pbar = ProgressBar(ncols=0, ascii=True)
+    train_pbar = ProgressBar(ncols=0, ascii=True, position=0)
     train_pbar.attach(trainer, ['Loss', 'Accuracy'])
     trainer.logger = setup_logger('Trainer')
     tb_logger.attach(trainer,
@@ -218,10 +216,10 @@ def main(args):
 
     evaluator = Engine(step_val)
     RunningAverage(Loss(criterion, output_transform=lambda output: output[:2])).attach(evaluator, 'Loss')
-    RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR], output_transform=lambda output: output[2:])).attach(evaluator, 'CER')
-    RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR], output_transform=lambda output: output[2:])).attach(evaluator, 'WER')
+    RunningAverage(CharacterErrorRate(vocab, output_transform=lambda output: output[2:])).attach(evaluator, 'CER')
+    RunningAverage(WordErrorRate(vocab, output_transform=lambda output: output[2:])).attach(evaluator, 'WER')
 
-    eval_pbar = ProgressBar(ncols=0, ascii=True)
+    eval_pbar = ProgressBar(ncols=0, ascii=True, position=0)
     eval_pbar.attach(evaluator, ['Loss', 'CER', 'WER'])
     evaluator.logger = setup_logger('Evaluator')
     tb_logger.attach(evaluator,

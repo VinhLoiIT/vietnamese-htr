@@ -3,12 +3,12 @@ common:
     cnn: densenet
     optimizer: adam
     batch_size: 16
-    scale_height: 96 
+    scale_height: 128
     max_length: 10
     use_handcraft: False
 
     n_epochs_decrease_lr: 5
-    start_learning_rate: 1.0e-4
+    start_learning_rate: 1.0e-5
     end_learning_rate: 1.0e-11
     max_epochs: 50
     weight_decay: 0
