@@ -54,7 +54,7 @@ class Transformer(nn.Module):
         # Step 1: CNN Feature Extraction
         image_features = self.cnn(images) # [B, C', H', W']
         image_features = image_features.transpose(-2, -1) # [B, C', W', H']
-        image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=W'xH']
+        image_features = image_features.reshape(batch_size, self.cnn.n_features, -1) # [B, C', S=W'xH']
         image_features = image_features.transpose(1,2) # [B, S, C']
         image_features = self.Ic(image_features) # [B,S,A]
         image_features = image_features.transpose(0, 1) # [S, B, A]
@@ -93,7 +93,7 @@ class Transformer(nn.Module):
         # Step 1: CNN Feature Extraction
         image_features = self.cnn(images) # [B, C', H', W']
         image_features = image_features.transpose(-2, -1) # [B, C', W', H']
-        image_features = image_features.view(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
+        image_features = image_features.reshape(batch_size, self.cnn.n_features, -1) # [B, C', S=H'xW']
         image_features = image_features.transpose(1,2) # [B,S,C']
         image_features = self.Ic(image_features).transpose(0, 1) # [S,B,A]
 
@@ -160,12 +160,32 @@ class Transformer(nn.Module):
 
 class PositionalEncoding(nn.Module):
 
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
+    def __init__(self, d_model, batch_first=False, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
 
         pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze_(1) # [T,1]
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)) # [E]
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze_(0)
+        if batch_first:
+            pe.transpose_(0, 1)
+        self.register_buffer('pe', pe)
+        self.pe.ndimension()
+
+    def forward(self, x):
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
+
+class PositionalEncoding2d(nn.Module):
+    def __init__(self, d_model, dropout=0.1, max_width=100):
+        super(PositionalEncoding2d, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_width, d_model)
+        position = torch.arange(0, max_width, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)

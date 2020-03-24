@@ -3,6 +3,8 @@ import torchvision
 import torch.nn.functional as F
 from efficientnet_pytorch import EfficientNet
 
+from collections import OrderedDict
+
 class FE(nn.Module):
     def __init__(self):
         super().__init__()
@@ -97,6 +99,66 @@ class LeNetFE(FE):
         x = self.activation(self.fc1(x))
         x = self.fc2(x)
         return x
+
+    def get_n_features(self):
+        return self.n_features
+
+class CustomFE(FE):
+    '''
+    An Efficient End-to-End Neural Model for Handwritten Text Recognition (2018)
+    '''
+    def __init__(self, in_channel=3):
+        super().__init__()
+
+        self.cnn = nn.Sequential(OrderedDict([
+            ('conv1', nn.Conv2d(in_channel, 16, 3, padding=1)),
+            ('lrelu1', nn.LeakyReLU(inplace=True)),
+            ('pool1', nn.MaxPool2d(2)),
+            ('bn1', nn.BatchNorm2d(16)),
+
+            ('conv2', nn.Conv2d(16, 32, 3, padding=1)),
+            ('lrelu2', nn.LeakyReLU(inplace=True)),
+            ('pool2', nn.MaxPool2d(2)),
+            ('bn2', nn.BatchNorm2d(32)),
+
+            ('conv3', nn.Conv2d(32, 64, 3, padding=1)),
+            ('lrelu3', nn.LeakyReLU(inplace=True)),
+            ('bn3', nn.BatchNorm2d(64)),
+
+            ('conv4', nn.Conv2d(64, 64, 3, padding=1)),
+            ('lrelu4', nn.LeakyReLU(inplace=True)),
+            ('bn4', nn.BatchNorm2d(64)),
+
+            ('conv5', nn.Conv2d(64, 128, 3, padding=1)),
+            ('lrelu5', nn.LeakyReLU(inplace=True)),
+            ('pool5', nn.MaxPool2d((1,2))),
+            ('bn5', nn.BatchNorm2d(128)),
+
+            ('conv6', nn.Conv2d(128, 128, 3, padding=1)),
+            ('lrelu6', nn.LeakyReLU(inplace=True)),
+            ('pool6', nn.MaxPool2d((1,2))),
+            ('bn6', nn.BatchNorm2d(128)),
+
+            ('conv7', nn.Conv2d(128, 128, (2,2))),
+            ('lrelu7', nn.LeakyReLU(inplace=True)),
+            ('bn7', nn.BatchNorm2d(128)),
+        ]))
+        self.n_features = 128
+
+    def get_cnn(self):
+        return self.cnn
+    def get_n_features(self):
+        return self.n_features
+
+class ResnetFE(FE):
+    def __init__(self, version='resnet50'):
+        super().__init__()
+        resnet = torchvision.models.resnet50(pretrained=True)
+        self.n_features = 2048
+        self.cnn = nn.Sequential(*list(resnet.children())[:-1])
+
+    def get_cnn(self):
+        return self.cnn
 
     def get_n_features(self):
         return self.n_features

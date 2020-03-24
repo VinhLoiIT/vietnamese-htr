@@ -1,90 +1,77 @@
 import torch
 from torch.nn.utils.rnn import pad_packed_sequence
 
+from ignite.engine import Engine, Events
 from ignite.exceptions import NotComputableError
 from ignite.metrics.metric import Metric
-from ignite.metrics import RunningAverage
+from ignite.metrics import EpochMetric, Average
 from ignite.metrics.metric import sync_all_reduce, reinit__is_reduced
 
 import editdistance as ed
 
 __all__ = [
-            'CharacterErrorRate',
-            'WordErrorRate',
-            ]
-
-def _calc_length(tensor, EOS_int, batch_first=False):
-    if not batch_first:
-        tensor = tensor.transpose(0,1)
-
-    lengths = []
-    for sample in tensor.tolist():
-        try:
-            end = sample.index(EOS_int)
-        except:
-            end = None
-        lengths.append(end)
-    return lengths
-
+    'CharacterErrorRate',
+    'WordErrorRate',
+]
 
 class CharacterErrorRate(Metric):
     '''
     Calculates the CharacterErrorRate.
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, vocab, output_transform=None, batch_first=True):
-        super().__init__()
-        self.EOS_int = vocab.char2int(vocab.EOS)
-        self.output_transform = output_transform
+    def __init__(self, vocab, batch_first=True, output_transform=lambda x: x, device=None):
+        super().__init__(output_transform, device)
         self.batch_first = batch_first
+        self.EOS_int = vocab.char2int(vocab.EOS)
 
-    def cer(self, pred, target):
-        '''
-        Parameters:
-        -----------
-        pred: [B,T_1]
-        target: [B,T_2]
+    def calc_length(self, tensor):
+        if not self.batch_first:
+            tensor = tensor.transpose(0,1)
 
-        Output:
-        float cer
-        '''
-        assert len(pred) == len(target)
-        batch_size = len(pred)
-        pred_lengths = _calc_length(pred, self.EOS_int, True)
-        target_lengths = _calc_length(target, self.EOS_int, True)
-
-        batch_cers = 0
-        for i, (pred_length, tgt_length) in enumerate(zip(pred_lengths, target_lengths)):
-            distance = ed.distance(pred[i, :pred_length].tolist(), target[i, :tgt_length].tolist())
-            distance = distance / len(target[i, :tgt_length])
-            batch_cers += distance
-        return batch_cers
+        lengths = []
+        for sample in tensor.tolist():
+            try:
+                length = sample.index(self.EOS_int)
+            except:
+                length = len(sample)
+            lengths.append(length)
+        return lengths
 
     @reinit__is_reduced
     def reset(self) -> None:
-        self._cer = 0.0
+        self._ed = 0.0
         self._num_examples = 0
 
     @reinit__is_reduced
     def update(self, output) -> None:
-        if self.output_transform is not None:
-            output = self.output_transform(output)
+        '''
+        output: ([B, T_1], [B, T2])
+        '''
         y_pred, y = output
-        y_pred = y_pred.squeeze(-1)
-        y = y.squeeze(-1)
-        if not self.batch_first:
-            y_pred = y_pred.transpose(0,1)
-            y = y.transpose(0,1)
-        batch_size = len(y_pred)
 
-        self._cer += self.cer(y_pred, y)
+        if not self.batch_first:
+            y_pred = y_pred.transpose(0,1) # [B,T_1]
+            y = y.transpose(0,1) # [B,T_2]
+        batch_size = y_pred.size(0)
+
+        assert len(y_pred) == len(y)
+        pred_lengths = self.calc_length(y_pred)
+        target_lengths = self.calc_length(y)
+
+        distances = torch.zeros(batch_size, dtype=torch.float)
+        for i, (pred_length, tgt_length) in enumerate(zip(pred_lengths, target_lengths)):
+            distance = ed.distance(y_pred[i, :pred_length].tolist(), y[i, :tgt_length].tolist())
+            distance = float(distance) / target_lengths[i]
+            distances[i] = distance
+
+        self._ed += distances.sum()
         self._num_examples += batch_size
 
-    @sync_all_reduce("_cer", "_num_examples")
+    @sync_all_reduce("_ed", "_num_examples")
     def compute(self):
         if self._num_examples == 0:
             raise NotComputableError('CharacterErrorRate must have at least one example before it can be computed.')
-        return self._cer / self._num_examples
+        return self._ed / self._num_examples
 
 class WordErrorRate(Metric):
     '''
@@ -93,59 +80,74 @@ class WordErrorRate(Metric):
     - When recognize at word-level, this metric is (1 - Accuracy)
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, vocab, output_transform=None, batch_first=True):
-        super().__init__()
+    def __init__(self, vocab, batch_first=True, output_transform=lambda x: x):
+        super().__init__(output_transform)
         self.EOS_int = vocab.char2int(vocab.EOS)
-        self.output_transform = output_transform
         self.batch_first = batch_first
 
-    def wer(self, pred, target):
-        '''
-        Parameters:
-        -----------
-        pred: [B,T_1]
-        target: [B,T_2]
+    def calc_length(self, tensor):
+        if not self.batch_first:
+            tensor = tensor.transpose(0,1)
 
-        Output:
-        float wer
-        '''
-        assert len(pred) == len(target), "Batch size must match. pred = {}, target = {}".format(len(pred), len(target))
-        batch_size = len(pred)
-        pred_lengths = _calc_length(pred, self.EOS_int, True)
-        target_lengths = _calc_length(target, self.EOS_int, True)
-
-        batch_wers = 0
-        for i, (pred_length, tgt_length) in enumerate(zip(pred_lengths, target_lengths)):
-            distance = 0 if torch.equal(pred[i, :pred_length], target[i, :tgt_length]) else 1
-            batch_wers += distance
-        return batch_wers
+        lengths = []
+        for sample in tensor.tolist():
+            try:
+                length = sample.index(self.EOS_int)
+            except:
+                length = len(sample)
+            lengths.append(length)
+        return lengths
 
     @reinit__is_reduced
     def reset(self) -> None:
-        self._wer = 0.0
+        self._we = 0.0
         self._num_examples = 0
 
     @reinit__is_reduced
     def update(self, output) -> None:
-        if self.output_transform is not None:
-            output = self.output_transform(output)
+        '''
+        output: ([B, T_1], [B, T2])
+        '''
         y_pred, y = output
-        y_pred = y_pred.squeeze(-1)
-        y = y.squeeze(-1)
 
         if not self.batch_first:
             y_pred = y_pred.transpose(0,1) # [B,T_1]
             y = y.transpose(0,1) # [B,T_2]
         batch_size = y_pred.size(0)
 
-        self._wer += self.wer(y_pred, y)
+        assert len(y_pred) == len(y)
+        pred_lengths = self.calc_length(y_pred)
+        target_lengths = self.calc_length(y)
+
+        distances = torch.zeros(batch_size, dtype=torch.float)
+        for i, (pred_length, tgt_length) in enumerate(zip(pred_lengths, target_lengths)):
+            distance = 0 if torch.equal(y_pred[i, :pred_length], y[i, :tgt_length]) else 1
+            distances[i] = distance
+
+        self._we += distances.sum()
         self._num_examples += batch_size
 
-    @sync_all_reduce("_wer", "_num_examples")
+    @sync_all_reduce("_we", "_num_examples")
     def compute(self):
         if self._num_examples == 0:
             raise NotComputableError('WordErrorRate must have at least one example before it can be computed.')
-        return self._wer / self._num_examples
+        return self._we / self._num_examples
+
+    # def attach(self, engine: Engine, name: str) -> None:
+    #     # restart every epoch
+    #     if not engine.has_event_handler(self.started, Events.EPOCH_STARTED):
+    #         engine.add_event_handler(Events.EPOCH_STARTED, self.started)
+    #     # compute metric
+    #     if not engine.has_event_handler(self.iteration_completed, Events.ITERATION_COMPLETED):
+    #         engine.add_event_handler(Events.ITERATION_COMPLETED, self.iteration_completed)
+    #     # apply running average
+    #     engine.add_event_handler(Events.ITERATION_COMPLETED, self.completed, name)
+
+
+class DummyVocab:
+    EOS = 'z'
+    def char2int(self, c):
+        return ord(self.EOS)
 
 if __name__ == '__main__':
     pred = [
@@ -175,8 +177,9 @@ if __name__ == '__main__':
     print('a', a)
     print('b', b)
 
-    cer = CharacterErrorRate(ord(EOS), batch_first=True)
-    wer = WordErrorRate(ord(EOS), batch_first=True)
+    vocab = DummyVocab()
+    cer = CharacterErrorRate(vocab, batch_first=True)
+    wer = WordErrorRate(vocab, batch_first=True)
 
     cer.update((a,b))
     wer.update((a,b))
