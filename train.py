@@ -10,7 +10,7 @@ import torch.optim as optim
 from ignite.utils import setup_logger
 from ignite.engine import Engine, Events
 from ignite.handlers import DiskSaver
-from ignite.metrics import Accuracy, Loss, RunningAverage, Average
+from ignite.metrics import Accuracy, Loss
 from ignite.contrib.handlers.tensorboard_logger import TensorboardLogger, OutputHandler, global_step_from_engine
 from ignite.contrib.handlers import ProgressBar
 from torchvision import transforms
@@ -18,7 +18,7 @@ from torchvision import transforms
 from dataset import get_data_loader
 from model import Seq2Seq, Transformer, DenseNetFE, SqueezeNetFE, EfficientNetFE, CustomFE, ResnetFE
 from utils import ScaleImageByHeight, HandcraftFeature
-from metrics import CharacterErrorRate, WordErrorRate
+from metrics import CharacterErrorRate, WordErrorRate, Running
 from losses import FocalLoss
 
 from torch.nn.utils.rnn import pack_padded_sequence
@@ -206,8 +206,8 @@ def main(args):
             return logits, packed_targets, outputs, targets[:, 1:]
 
     trainer = Engine(step_train)
-    RunningAverage(Loss(criterion), alpha=0).attach(trainer, 'Loss')
-    RunningAverage(Accuracy(), alpha=0).attach(trainer, 'Accuracy')
+    Running(Loss(criterion), reset_interval=args.log_interval).attach(trainer, 'Loss')
+    Running(Accuracy(), reset_interval=args.log_interval).attach(trainer, 'Accuracy')
 
     train_pbar = ProgressBar(ncols=0, ascii=True, position=0)
     train_pbar.attach(trainer, 'all')
@@ -218,9 +218,9 @@ def main(args):
                                                metric_names=['Loss', 'Accuracy']))
 
     evaluator = Engine(step_val)
-    RunningAverage(Loss(criterion, output_transform=lambda output: output[:2]), alpha=0).attach(evaluator, 'Loss')
-    RunningAverage(CharacterErrorRate(vocab, output_transform=lambda output: output[2:]), alpha=0).attach(evaluator, 'CER')
-    RunningAverage(WordErrorRate(vocab, output_transform=lambda output: output[2:]), alpha=0).attach(evaluator, 'WER')
+    Running(Loss(criterion, output_transform=lambda output: output[:2])).attach(evaluator, 'Loss')
+    Running(CharacterErrorRate(vocab, output_transform=lambda output: output[2:])).attach(evaluator, 'CER')
+    Running(WordErrorRate(vocab, output_transform=lambda output: output[2:])).attach(evaluator, 'WER')
 
     eval_pbar = ProgressBar(ncols=0, ascii=True, position=0)
     eval_pbar.attach(evaluator, 'all')

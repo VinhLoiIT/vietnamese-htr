@@ -1,66 +1,91 @@
 import argparse
-import datetime
 import os
+import datetime
 
-import editdistance as ed
-import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from tqdm import tqdm
+import torch.optim as optim
+
+from ignite.utils import setup_logger
+from ignite.engine import Engine, Events
+from ignite.handlers import DiskSaver
+from ignite.metrics import Accuracy, Loss
+from ignite.contrib.handlers.tensorboard_logger import TensorboardLogger, OutputHandler, global_step_from_engine
+from ignite.contrib.handlers import ProgressBar
 from torchvision import transforms
 
-from dataset import get_data_loader, get_vocab, EOS_CHAR
-from model import DenseNetFE, Seq2Seq, Transformer
+from dataset import get_data_loader
+from model import Seq2Seq, Transformer, DenseNetFE, SqueezeNetFE, EfficientNetFE, CustomFE, ResnetFE
 from utils import ScaleImageByHeight, HandcraftFeature
-from metrics import CharacterErrorRate, WordErrorRate
+from metrics import CharacterErrorRate, WordErrorRate, Running
+from losses import FocalLoss
 
-from ignite.engine import Engine, Events
-from ignite.metrics import RunningAverage
-from ignite.contrib.handlers import ProgressBar
-from ignite.utils import setup_logger
-
+from torch.nn.utils.rnn import pack_padded_sequence
 from PIL import ImageOps
 
-from torch.utils.tensorboard import SummaryWriter
+import logging
+
+
+# Reproducible
+seed = 0
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
 
 def main(args):
     device = f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu'
     print('Device = {}'.format(device))
     print('Load weight from {}'.format(args.weight))
     checkpoint = torch.load(args.weight, map_location=device)
-    config = checkpoint['config']
+    root_config = checkpoint['config']
+    config = root_config['common']
 
-    if config['common']['cnn'] == 'densenet':
-        cnn = DenseNetFE()
 
-    vocab = get_vocab(config['common']['dataset'])
-
-    if args.model == 'tf':
-        model_config = config['tf']
-        model = Transformer(cnn, vocab.vocab_size, model_config)
-    elif args.model == 's2s':
-        model_config = config['s2s']
-        model = Seq2Seq(cnn, vocab.vocab_size, model_config['hidden_size'], model_config['attn_size'])
-    else:
-        raise ValueError('model should be "tf" or "s2s"')
-    model.to(device)
-
-    model.load_state_dict(checkpoint['model'])
-
-    test_transform = transforms.Compose([
+    image_transform = transforms.Compose([
         ImageOps.invert,
-        ScaleImageByHeight(config['common']['scale_height']),
-        HandcraftFeature() if config['common']['use_handcraft'] else transforms.Grayscale(3),
+        ScaleImageByHeight(config['scale_height']),
+        transforms.Grayscale(3),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225]),
     ])
 
-    test_loader = get_data_loader(config['common']['dataset'], args.parition, 8, 1,
-                                  test_transform, vocab, debug=args.debug)
+    test_loader = get_data_loader(config['dataset'], 'val', config['batch_size'],
+                                 1,
+                                 image_transform, args.debug)
+    if args.debug:
+        vocab = test_loader.dataset.dataset.vocab
+    else:
+        vocab = test_loader.dataset.vocab
+
+    if config['cnn'] == 'densenet':
+        cnn_config = root_config['densenet']
+        cnn = DenseNetFE()
+    elif config['cnn'] == 'squeezenet':
+        cnn = SqueezeNetFE()
+    elif config['cnn'] == 'efficientnet':
+        cnn = EfficientNetFE('efficientnet-b1')
+    elif config['cnn'] == 'custom':
+        cnn = CustomFE(3)
+    elif config['cnn'] == 'resnet':
+        cnn = ResnetFE()
+    else:
+        raise ValueError('Unknow CNN {}'.format(config['cnn']))
+
+    if args.model == 'tf':
+        model_config = root_config['tf']
+        model = Transformer(cnn, vocab.size, model_config)
+    elif args.model == 's2s':
+        model_config = root_config['s2s']
+        model = Seq2Seq(cnn, vocab.size, model_config['hidden_size'], model_config['attn_size'])
+    else:
+        raise ValueError('model should be "tf" or "s2s"')
+
+    model.to(device)
+    model.load_state_dict(checkpoint['model'])
+    model.eval()
 
     if args.oneshot:
-        model.eval()
         with torch.no_grad():
             imgs, targets, targets_onehot, lengths = next(iter(test_loader))
             imgs = imgs.to(device)
@@ -76,27 +101,19 @@ def main(args):
                 print(sample)
             exit(0)
 
+    @torch.no_grad()
     def step_val(engine, batch):
-        model.eval()
-
-        with torch.no_grad():
-            imgs, targets, _ = batch
-
-            imgs = imgs.to(device)
-            targets = targets.to(device)
-            targets_onehot = F.one_hot(targets, vocab.vocab_size).to(device)
-
-            outputs, _ = model.greedy(imgs, targets_onehot[:, [0]], output_weights=False)
-            outputs = outputs.topk(1, -1)[1]
-
-            return outputs, targets[:, 1:]
+        imgs, targets = batch.images.to(device), batch.labels.to(device)
+        outputs, _ = model.greedy(imgs, targets[:, [0]], output_weights=False)
+        outputs = outputs.argmax(-1)
+        return outputs, targets[:, 1:]
 
     evaluator = Engine(step_val)
-    RunningAverage(CharacterErrorRate(vocab.char2int[EOS_CHAR])).attach(evaluator, 'CER')
-    RunningAverage(WordErrorRate(vocab.char2int[EOS_CHAR])).attach(evaluator, 'WER')
-    
-    eval_pbar = ProgressBar(ncols=0, ascii=True)
-    eval_pbar.attach(evaluator, ['CER', 'WER'])
+    Running(CharacterErrorRate(vocab)).attach(evaluator, 'CER')
+    Running(WordErrorRate(vocab)).attach(evaluator, 'WER')
+
+    eval_pbar = ProgressBar(ncols=0, ascii=True, position=0)
+    eval_pbar.attach(evaluator, 'all')
     evaluator.logger = setup_logger('Evaluator')
 
     @evaluator.on(Events.COMPLETED)
@@ -107,14 +124,12 @@ def main(args):
             'hparam/WER': engine.state.metrics['WER'],
         }
 
-        with open('result.csv', 'w+') as f:
-            print(engine.state.metrics['CER'], ',', engine.state.metrics['WER'], file=f)
-
     print(config)
     print('='*60)
     print(model)
     print('Start evaluating..')
     evaluator.run(test_loader)
+    f.close()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
