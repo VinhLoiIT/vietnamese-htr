@@ -1,4 +1,4 @@
-import numpy as np
+import torch
 from torch.utils.data import ConcatDataset, DataLoader, Subset
 from .vocab import CollateWrapper
 
@@ -53,7 +53,7 @@ def get_data_loader(dataset, partition, batch_size, num_workers=1, transform=Non
     shuffle = partition == 'train'
 
     if debug:
-        data = Subset(data, np.arange(batch_size*5 + batch_size//2))
+        data = Subset(data, torch.arange(batch_size*5 + batch_size//2).numpy())
         loader = DataLoader(data, batch_size=batch_size,
                             shuffle=shuffle,
                             collate_fn=collate_fn,

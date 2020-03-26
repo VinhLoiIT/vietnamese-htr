@@ -75,11 +75,11 @@ def main(args):
     ])
 
     train_loader = get_data_loader(config['dataset'], 'trainval' if args.trainval else 'train', config['batch_size'],
-                                   1,
+                                   args.num_workers,
                                    image_transform, args.debug)
 
     val_loader = get_data_loader(config['dataset'], 'val', config['batch_size'],
-                                 1,
+                                 args.num_workers,
                                  image_transform, args.debug)
     if args.debug:
         vocab = train_loader.dataset.dataset.vocab
@@ -103,7 +103,7 @@ def main(args):
 
     if args.model == 'tf':
         model_config = root_config['tf']
-        model = Transformer(cnn, vocab.size, model_config)
+        model = Transformer(cnn, vocab, model_config)
     elif args.model == 's2s':
         model_config = root_config['s2s']
         model = Seq2Seq(cnn, vocab.size, model_config['hidden_size'], model_config['attn_size'])
@@ -188,22 +188,21 @@ def main(args):
 
         return outputs, targets
 
+    @torch.no_grad()
     def step_val(engine, batch):
         model.eval()
 
-        with torch.no_grad():
-            imgs, targets = batch.images.to(device), batch.labels.to(device)
-            logits = model(imgs, targets[:, :-1])
-            if multi_gpus:
-                outputs, _ = model.module.greedy(imgs, targets[:, [0]], output_weights=False)
-            else:
-                outputs, _ = model.greedy(imgs, targets[:, [0]], output_weights=False)
-            outputs = outputs.argmax(-1)
+        imgs, targets = batch.images.to(device), batch.labels.to(device)
+        logits = model(imgs, targets[:, :-1])
+        if multi_gpus:
+            outputs, _ = model.module.greedy(imgs, targets[:, [0]], output_weights=False)
+        else:
+            outputs, _ = model.greedy(imgs, targets[:, [0]], output_weights=False)
 
-            logits = pack_padded_sequence(logits, (batch.lengths - 1), batch_first=True)[0]
-            packed_targets = pack_padded_sequence(targets[:, 1:], (batch.lengths - 1), batch_first=True)[0]
+        logits = pack_padded_sequence(logits, (batch.lengths - 1), batch_first=True)[0]
+        packed_targets = pack_padded_sequence(targets[:, 1:], (batch.lengths - 1), batch_first=True)[0]
 
-            return logits, packed_targets, outputs, targets[:, 1:]
+        return logits, packed_targets, outputs, targets[:, 1:]
 
     trainer = Engine(step_train)
     Running(Loss(criterion), reset_interval=args.log_interval).attach(trainer, 'Loss')
@@ -258,14 +257,13 @@ def main(args):
     logger.info('='*60)
     logger.info(flatten_config(root_config))
     logger.info('='*60)
+    logger.info('Start training..')
     if args.resume:
         trainer.load_state_dict(checkpoint['trainer'])
-    logger.info('Start training..')
-    trainer.run(train_loader, max_epochs=5 if args.debug else config['max_epochs'], seed=seed)
-
+        trainer.run(train_loader, max_epochs=5 if args.debug else config['max_epochs'], seed=None)
+    else:
+        trainer.run(train_loader, max_epochs=5 if args.debug else config['max_epochs'], seed=seed)
     print(best_metrics)
-    tb_logger.writer.add_hparams(flatten_config(config), best_metrics)
-    tb_logger.writer.flush()
     tb_logger.close()
 
 if __name__ == '__main__':
@@ -281,6 +279,7 @@ if __name__ == '__main__':
     parser.add_argument('--trainval', action='store_true', default=False)
     parser.add_argument('--gpu-id', type=int, default=0)
     parser.add_argument('--multi-gpus', action='store_true', default=False)
+    parser.add_argument('--num-workers', type=int, default=2)
     parser.add_argument('--log-interval', type=int, default=50)
     parser.add_argument('--resume', type=str)
     args = parser.parse_args()

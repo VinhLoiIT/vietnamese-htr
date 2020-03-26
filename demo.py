@@ -3,7 +3,6 @@ import datetime
 import os
 
 import editdistance as ed
-import numpy as np
 import torch
 import torch.nn as nn
 from tqdm import tqdm
