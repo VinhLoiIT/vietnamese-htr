@@ -72,7 +72,6 @@ class Transformer(nn.Module):
         Return:
             - outputs: [B,T,V]
         '''
-        # Step 1: CNN Feature Extraction
         image_features = self.embed_image(images) # [B, S, A]
         image_features = image_features.transpose_(0, 1) # [S, B, A]
 
@@ -152,17 +151,13 @@ class PositionalEncoding2d(nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x.add_(self.pe[:x.size(0), :])
-        return self.dropout(x)
-
-    def forward(self, x):
         '''
         x: [B,C,H,W]
         '''
         x = x.permute(0,2,3,1) # [B,H,W,C]
         xshape = x.shape
         x = x.reshape(-1, x.size(2), x.size(3)) # [B*H,W,C]
-        x = x.add_(self.pe[:, :x.size(1), :])
+        x = x + self.pe[:, :x.size(1), :]
         x = x.reshape(*xshape) # [B,H,W,C]
         x = x.permute(0,3,1,2) # [B,C,H,W]
         return self.dropout(x)
