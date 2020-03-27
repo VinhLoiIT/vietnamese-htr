@@ -8,7 +8,7 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
-from vocab import CollateWrapper, Vocab
+from .vocab import CollateWrapper, Vocab
 
 
 class VNOnDBVocab(Vocab):

@@ -74,7 +74,7 @@ def main(args):
 
     if args.model == 'tf':
         model_config = root_config['tf']
-        model = Transformer(cnn, vocab.size, model_config)
+        model = Transformer(cnn, vocab, model_config)
     elif args.model == 's2s':
         model_config = root_config['s2s']
         model = Seq2Seq(cnn, vocab.size, model_config['hidden_size'], model_config['attn_size'])
@@ -105,12 +105,11 @@ def main(args):
     def step_val(engine, batch):
         imgs, targets = batch.images.to(device), batch.labels.to(device)
         outputs, _ = model.greedy(imgs, targets[:, [0]], output_weights=False)
-        outputs = outputs.argmax(-1)
         return outputs, targets[:, 1:]
 
     evaluator = Engine(step_val)
     Running(CharacterErrorRate(vocab)).attach(evaluator, 'CER')
-    Running(WordErrorRate(vocab)).attach(evaluator, 'WER')
+    Running(WordErrorRate(vocab, 'test.txt')).attach(evaluator, 'WER')
 
     eval_pbar = ProgressBar(ncols=0, ascii=True, position=0)
     eval_pbar.attach(evaluator, 'all')
@@ -129,7 +128,6 @@ def main(args):
     print(model)
     print('Start evaluating..')
     evaluator.run(test_loader)
-    f.close()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

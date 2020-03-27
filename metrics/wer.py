@@ -13,10 +13,20 @@ class WordErrorRate(Metric):
     - When recognize at word-level, this metric is (1 - Accuracy)
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, vocab, batch_first=True, output_transform=lambda x: x):
+    def __init__(self, vocab, logfile=None, batch_first=True, output_transform=lambda x: x):
         super().__init__(output_transform)
+        self.vocab = vocab
         self.EOS_int = vocab.char2int(vocab.EOS)
         self.batch_first = batch_first
+        self.log = logfile
+
+        if self.log is not None:
+            if isinstance(self.log, str):
+                self.log = open(self.log, 'wt')
+
+    def __del__(self):
+        if self.log is not None:
+            self.log.close()
 
     def calc_length(self, tensor):
         if not self.batch_first:
@@ -54,6 +64,10 @@ class WordErrorRate(Metric):
 
         distances = torch.zeros(batch_size, dtype=torch.float)
         for i, (pred_length, tgt_length) in enumerate(zip(pred_lengths, target_lengths)):
+            self.log.write('{} | {}\n'.format(
+                ''.join(list(map(self.vocab.int2char, y_pred[i, :pred_length]))),
+                ''.join(list(map(self.vocab.int2char, y[i, :tgt_length]))),
+            ))
             distance = 0 if torch.equal(y_pred[i, :pred_length], y[i, :tgt_length]) else 1
             distances[i] = distance
 
