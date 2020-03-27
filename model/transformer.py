@@ -42,9 +42,9 @@ class Transformer(nn.Module):
         image_features = self.cnn(images) # [B, C', H', W']
         batch_size, height, width = images.size(0), images.size(2), images.size(3)
         #image_features = self.pe_image(image_features) # [B,C',H',W']
-        image_features = image_features.transpose_(-2, -1) # [B,C',W',H']
+        image_features = image_features.transpose(-2, -1) # [B,C',W',H']
         image_features = image_features.reshape(batch_size, self.cnn.n_features, -1) # [B, C', S=W'xH']
-        image_features = image_features.transpose_(1,2) # [B, S, C']
+        image_features = image_features.transpose(1,2) # [B, S, C']
         image_features = self.Ic(image_features) # [B,S,A]
 
         return image_features

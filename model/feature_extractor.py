@@ -155,7 +155,7 @@ class ResnetFE(FE):
         super().__init__()
         resnet = torchvision.models.resnet50(pretrained=True)
         self.n_features = 2048
-        self.cnn = nn.Sequential(*list(resnet.children())[:-1])
+        self.cnn = nn.Sequential(*list(resnet.children())[:-2])
 
     def get_cnn(self):
         return self.cnn
