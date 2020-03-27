@@ -64,10 +64,11 @@ class WordErrorRate(Metric):
 
         distances = torch.zeros(batch_size, dtype=torch.float)
         for i, (pred_length, tgt_length) in enumerate(zip(pred_lengths, target_lengths)):
-            self.log.write('{} | {}\n'.format(
-                ''.join(list(map(self.vocab.int2char, y_pred[i, :pred_length]))),
-                ''.join(list(map(self.vocab.int2char, y[i, :tgt_length]))),
-            ))
+            if self.log is not None:
+                self.log.write('{} | {}\n'.format(
+                    ''.join(list(map(self.vocab.int2char, y_pred[i, :pred_length]))),
+                    ''.join(list(map(self.vocab.int2char, y[i, :tgt_length]))),
+                ))
             distance = 0 if torch.equal(y_pred[i, :pred_length], y[i, :tgt_length]) else 1
             distances[i] = distance
 
