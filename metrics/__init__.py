@@ -1,3 +1,2 @@
-from .cer import *
-from .wer import *
+from .edit_distance import *
 from .running import *

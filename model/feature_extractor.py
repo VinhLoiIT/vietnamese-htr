@@ -23,9 +23,15 @@ class FE(nn.Module):
         return self.get_cnn()(inputs) # [B, C', H', W']
 
 class DenseNetFE(FE):
-    def __init__(self):
+
+    version = {
+        'densenet161': torchvision.models.densenet161,
+        'densenet121': torchvision.models.densenet121,
+    }
+
+    def __init__(self, version, memory_efficient):
         super().__init__()
-        densenet = torchvision.models.densenet161(pretrained=True, memory_efficient=True)
+        densenet = self.version[version](pretrained=True, memory_efficient=memory_efficient)
         self.cnn = densenet.features
         self.n_features = densenet.classifier.in_features
 
@@ -38,7 +44,7 @@ class DenseNetFE(FE):
     def forward(self, inputs):
         features = super().forward(inputs)
         out = F.relu(features, inplace=True)
-        out = F.adaptive_avg_pool2d(out, (1, 1))
+        out = F.adaptive_avg_pool2d(out, (1, None))
         return out
 
 class EfficientNetFE(FE):
@@ -56,7 +62,7 @@ class EfficientNetFE(FE):
 
     def forward(self, inputs):
         features = super().forward(inputs)
-        out = F.adaptive_avg_pool2d(features, (1, 1))
+        out = F.adaptive_avg_pool2d(features, (1, None))
         return out
 
 class SqueezeNetFE(FE):
@@ -151,14 +157,27 @@ class CustomFE(FE):
         return self.n_features
 
 class ResnetFE(FE):
+
+    version = {
+        'resnet50': torchvision.models.resnet50,
+        'resnet18': torchvision.models.resnet18,
+        'resnet34': torchvision.models.resnet34,
+    }
+
     def __init__(self, version='resnet50'):
         super().__init__()
-        resnet = torchvision.models.resnet50(pretrained=True)
-        self.n_features = 2048
+        resnet = ResnetFE.version[version](pretrained=True)
+        self.n_features = resnet.fc.in_features
         self.cnn = nn.Sequential(*list(resnet.children())[:-2])
+        self.pool = nn.AdaptiveMaxPool2d((1,None))
 
     def get_cnn(self):
         return self.cnn
 
     def get_n_features(self):
         return self.n_features
+
+    def forward(self, x):
+        x = self.cnn(x)
+        x = self.pool(x)
+        return x

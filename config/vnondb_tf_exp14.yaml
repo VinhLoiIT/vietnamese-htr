@@ -23,4 +23,4 @@ tf:
     dropout: 0.1
     encoder_nlayers: 1
     decoder_nlayers: 1
-
+    use_encoder: False

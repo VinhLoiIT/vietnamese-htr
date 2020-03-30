@@ -1,4 +1,4 @@
 from .feature_extractor import DenseNetFE, SqueezeNetFE, EfficientNetFE, CustomFE, ResnetFE
-from .seq2seq import Seq2Seq
-from .transformer import Transformer
+from .model import ModelTF, ModelRNN
 from .attention import AdditiveAttention, ScaleDotProductAttention, MultiHeadAttention
+from .positional_encoding import PositionalEncoding1d, PositionalEncoding2d

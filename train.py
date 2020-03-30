@@ -16,8 +16,8 @@ from ignite.contrib.handlers import ProgressBar
 from torchvision import transforms
 
 from dataset import get_data_loader
-from model import Seq2Seq, Transformer, DenseNetFE, SqueezeNetFE, EfficientNetFE, CustomFE, ResnetFE
-from utils import ScaleImageByHeight, HandcraftFeature
+from model import ModelTF, ModelRNN, DenseNetFE, SqueezeNetFE, EfficientNetFE, CustomFE, ResnetFE
+from utils import ScaleImageByHeight, StringTransform
 from metrics import CharacterErrorRate, WordErrorRate, Running
 from losses import FocalLoss
 
@@ -25,34 +25,29 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from PIL import ImageOps
 
 import logging
+import yaml
 
 # Reproducible
 seed = 0
 torch.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)
+device = f'cuda' if torch.cuda.is_available() else 'cpu'
 
-def load_config(config_path):
-    import yaml
-    with open(config_path, 'r') as stream:
-        try:
-            config = yaml.safe_load(stream)
-        except yaml.YAMLError as exc:
-            print(exc)
-    return config
+def load_config(conf_file: str):
+    # Read YAML file
+    with open(conf_file, 'r') as stream:
+        data_loaded = yaml.safe_load(stream)
+        return data_loaded
 
-def flatten_config(config, prefix=''):
-    flatten = {}
-    for key, val in config.items():
-        if isinstance(val, dict):
-            sub_flatten = flatten_config(val, prefix=str(key)+'_')
-            flatten.update(sub_flatten)
-        else:
-            flatten.update({prefix+str(key): val})
-    return flatten
+class OutputTransform(object):
+    def __init__(self, vocab, batch_first=True):
+        self.tf = StringTransform(vocab, batch_first)
+
+    def __call__(self, output):
+        return list(map(self.tf, output[2:]))
 
 def main(args):
     logger = logging.getLogger('MainTraining')
-    device = f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu'
     logger.info('Device = {}'.format(device))
 
     if args.resume:
@@ -74,11 +69,16 @@ def main(args):
                              std=[0.229, 0.224, 0.225]),
     ])
 
-    train_loader = get_data_loader(config['dataset'], 'trainval' if args.trainval else 'train', config['batch_size'],
+    train_loader = get_data_loader(config['dataset'],
+                                   'trainval' if args.trainval else 'train',
+                                   config['batch_size'],
                                    args.num_workers,
-                                   image_transform, args.debug)
+                                   image_transform,
+                                   args.debug)
 
-    val_loader = get_data_loader(config['dataset'], 'val', config['batch_size'],
+    val_loader = get_data_loader(config['dataset'],
+                                 'val',
+                                 config['batch_size'],
                                  args.num_workers,
                                  image_transform, args.debug)
     if args.debug:
@@ -97,16 +97,16 @@ def main(args):
     elif config['cnn'] == 'custom':
         cnn = CustomFE(3)
     elif config['cnn'] == 'resnet':
-        cnn = ResnetFE()
+        cnn = ResnetFE('resnet18')
     else:
         raise ValueError('Unknow CNN {}'.format(config['cnn']))
 
     if args.model == 'tf':
         model_config = root_config['tf']
-        model = Transformer(cnn, vocab, model_config)
+        model = ModelTF(cnn, vocab, model_config)
     elif args.model == 's2s':
         model_config = root_config['s2s']
-        model = Seq2Seq(cnn, vocab.size, model_config['hidden_size'], model_config['attn_size'])
+        model = ModelRNN(cnn, vocab, model_config)
     else:
         raise ValueError('model should be "tf" or "s2s"')
 
@@ -123,7 +123,7 @@ def main(args):
         dummy_image_input = torch.rand(config['batch_size'], 3, config['scale_height'], config['scale_height'] * 2)
         dummy_target_input = torch.rand(config['batch_size'], config['max_length'], vocab.size)
         dummy_output_train = model(dummy_image_input, dummy_target_input)
-        dummy_output_greedy, _ = model.greedy(dummy_image_input, dummy_target_input[:,[0]])
+        dummy_output_greedy = model.greedy(dummy_image_input, dummy_target_input[:,[0]])
         logger.debug(dummy_output_train.shape)
         logger.debug(dummy_output_greedy.shape)
         logger.info('Ok')
@@ -195,9 +195,9 @@ def main(args):
         imgs, targets = batch.images.to(device), batch.labels.to(device)
         logits = model(imgs, targets[:, :-1])
         if multi_gpus:
-            outputs, _ = model.module.greedy(imgs, targets[:, [0]], output_weights=False)
+            outputs = model.module.greedy(imgs, targets[:, 0], config['max_length'])
         else:
-            outputs, _ = model.greedy(imgs, targets[:, [0]], output_weights=False)
+            outputs = model.greedy(imgs, targets[:, 0], config['max_length'])
 
         logits = pack_padded_sequence(logits, (batch.lengths - 1), batch_first=True)[0]
         packed_targets = pack_padded_sequence(targets[:, 1:], (batch.lengths - 1), batch_first=True)[0]
@@ -218,8 +218,8 @@ def main(args):
 
     evaluator = Engine(step_val)
     Running(Loss(criterion, output_transform=lambda output: output[:2])).attach(evaluator, 'Loss')
-    Running(CharacterErrorRate(vocab, output_transform=lambda output: output[2:])).attach(evaluator, 'CER')
-    Running(WordErrorRate(vocab, output_transform=lambda output: output[2:])).attach(evaluator, 'WER')
+    Running(CharacterErrorRate(output_transform=OutputTransform(vocab, True))).attach(evaluator, 'CER')
+    Running(WordErrorRate(output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
 
     eval_pbar = ProgressBar(ncols=0, ascii=True, position=0)
     eval_pbar.attach(evaluator, 'all')
@@ -255,7 +255,7 @@ def main(args):
     logger.info('='*60)
     logger.info(model)
     logger.info('='*60)
-    logger.info(flatten_config(root_config))
+    logger.info(root_config)
     logger.info('='*60)
     logger.info('Start training..')
     if args.resume:

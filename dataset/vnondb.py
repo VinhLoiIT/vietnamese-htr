@@ -14,9 +14,9 @@ from .vocab import CollateWrapper, Vocab
 class VNOnDBVocab(Vocab):
     def __init__(self):
         super().__init__()
-        flattening = Flattening()
+        self.flattening = Flattening_1()
         df = pd.read_csv('./data/VNOnDB/train_word.csv', sep='\t', keep_default_na=False, index_col=0)
-        df['counter'] = df['label'].apply(lambda word: Counter([self.SOS] + re.findall(r'[\w]|<.*?>', flattening.flatten_word(word)) + [self.EOS]))
+        df['counter'] = df['label'].apply(lambda word: Counter([self.SOS] + self.flattening.flatten_word(list(word)) + [self.EOS]))
         counter = df['counter'].sum()
         counter.update({self.UNK: 0})
         self.alphabets = list(counter.keys())
@@ -39,11 +39,10 @@ class VNOnDB(Dataset):
         if self.vocab is None:
             self.vocab = VNOnDBVocab()
         self.image_transform = image_transform
-        flattening = Flattening()
 
         self.df = pd.read_csv(csv, sep='\t', keep_default_na=False, index_col=0)
         self.df['id'] = self.df['id'].apply(lambda id: os.path.join(image_folder, id+'.png'))
-        self.df['label'] = self.df['label'].apply(lambda x: [self.vocab.SOS] + re.findall(r'[\w]|<.*?>', flattening.flatten_word(x)) + [self.vocab.EOS])
+        self.df['label'] = self.df['label'].apply(lambda x: [self.vocab.SOS] + self.vocab.flattening.flatten_word(list(x)) + [self.vocab.EOS])
 
     def __len__(self):
         return len(self.df)
@@ -59,21 +58,67 @@ class VNOnDB(Dataset):
             
         return image, label
 
-class Flattening:
-    def __init__(self, accent_letters=None):
-        self.circumflex_unicodes = ['00C2', '1EA0', '00E2', '1EA1', '00CA', '00EA', '00D4', '00F4'] # â, Â, Ê, ...
+class Flattening(object):
+    def __init__(self):
+        self.accent2unicode = {'<6>': '\u0302', '<8>': '\u0306', '<F>': '\u0300', \
+                               '<S>': '\u0301', '<R>': '\u0309', '<X>': '\u0303', '<J>': '\u0323'}
+        self.circumflex_unicodes = ['00C2', '00E2', '00CA', '00EA', '00D4', '00F4'] # â, Â, Ê, ...
         self.breve_unicodes = ['0102', '0103'] # ă, Ă
         self.underdot_unicodes = ['1EA0', '1EA1', '1EB8', '1EB9', '1ECC', '1ECD']
-        if accent_letters==None:
-            self.accent_letters = 'À Á Ả Ã Ạ Â Ầ Ấ Ẩ Ẫ Ậ Ă Ằ Ắ Ẳ Ẵ Ặ à á ả ã ạ â ầ ấ ẩ ẫ ậ ă ằ ắ ẳ ẵ ặ\
-            È É Ẻ Ẽ Ẹ Ê Ề Ế Ể Ễ Ệ è é ẻ ẽ ẹ ê ề ế ể ễ ệ\
-            Ì Í Ỉ Ĩ Ị ì í ỉ ĩ ị\
-            Ò Ó Ỏ Õ Ọ Ô Ồ Ố Ổ Ỗ Ộ Ơ Ờ Ớ Ở Ỡ Ợ ò ó ỏ õ ọ ô ồ ố ổ ỗ ộ ơ ờ ớ ở ỡ ợ\
-            Ù Ú Ủ Ũ Ụ Ư Ừ Ứ Ử Ữ Ự ù ú ủ ũ ụ ư ừ ứ ử ữ ự\
-            Ỳ Ý Ỷ Ỹ Ỵ ỳ ý ỷ ỹ ỵ'
-            self.accent_letters = self.accent_letters.split()
-    
+        self.accent_letters = 'À Á Ả Ã Ạ Â Ầ Ấ Ẩ Ẫ Ậ Ă Ằ Ắ Ẳ Ẵ Ặ à á ả ã ạ â ầ ấ ẩ ẫ ậ ă ằ ắ ẳ ẵ ặ\
+        È É Ẻ Ẽ Ẹ Ê Ề Ế Ể Ễ Ệ è é ẻ ẽ ẹ ê ề ế ể ễ ệ\
+        Ì Í Ỉ Ĩ Ị ì í ỉ ĩ ị\
+        Ò Ó Ỏ Õ Ọ Ô Ồ Ố Ổ Ỗ Ộ Ơ Ờ Ớ Ở Ỡ Ợ ò ó ỏ õ ọ ô ồ ố ổ ỗ ộ ơ ờ ớ ở ỡ ợ\
+        Ù Ú Ủ Ũ Ụ Ư Ừ Ứ Ử Ữ Ự ù ú ủ ũ ụ ư ừ ứ ử ữ ự\
+        Ỳ Ý Ỷ Ỹ Ỵ ỳ ý ỷ ỹ ỵ'
+        self.accent_letters = self.accent_letters.split()
+        
     def get_unaccent(self, letter):
+        raise NotImplementedError()
+        
+    def get_accents(self, letter):
+        raise NotImplementedError()
+    
+    def flatten_letter(self, letter):
+        flattened_letter = []
+        if letter not in self.accent_letters:
+            return letter
+        unaccent_letter = self.get_unaccent(letter)
+        mark_accent, vowel_accent = self.get_accents(letter)
+        flattened_letter.append(unaccent_letter)
+        if mark_accent != None:
+            flattened_letter.append(mark_accent)
+        if vowel_accent != None:
+            flattened_letter.append(vowel_accent)
+        return flattened_letter
+    
+    
+    def flatten_word(self, word):
+        '''
+        Types:
+        ------
+            - word: list of accent-letters
+            Return:
+            - flattened_word: list of unaccent-letters [and <accent-letters> (if any)]
+        '''
+        flattened_word = []
+        for letter in word:
+            flattened_letter = self.flatten_letter(letter)
+            flattened_word.extend(flattened_letter)
+        return flattened_word
+    
+    def invert(self, flattened_word):
+        raise NotImplementedError()
+
+class Flattening_1(Flattening):
+    '''
+    Flatten without đ, Đ, ơ, Ơ, ư, Ư
+    '''
+    def __init__(self):
+        super().__init__()
+        
+    def get_unaccent(self, letter):
+        letter = letter.encode('utf-8').decode('utf-8')
         letter = re.sub(u'[àáảãạâầấẩẫậăằắẳẵặ]', 'a', letter)
         letter = re.sub(u'[ÀÁẢÃẠÂẦẤẨẪẬĂẰẮẲẴẶ]', 'A', letter)
         letter = re.sub(u'[èéẹẻẽêềếệểễ]', 'e', letter)
@@ -91,15 +136,16 @@ class Flattening:
         letter = re.sub(u'[ỳýỵỷỹ]', 'y', letter)
         letter = re.sub(u'[ỲÝỴỶỸ]', 'Y', letter)
         return letter
-
+        
     def get_accents(self, letter):
         mark_accent, vowel_accent = None, None
         bi_unicode = unicodedata.decomposition(letter).split()
 
-        if bi_unicode[1]=='0302' or (bi_unicode[0] in self.circumflex_unicodes):
+        if bi_unicode[1]=='0302' or (bi_unicode[0] in self.circumflex_unicodes) or letter=='ậ' or letter=='Ậ':
             mark_accent = '<6>' # VNI '<CIRCUMFLEX>'
-        if bi_unicode[1]=='0306' or (bi_unicode[0] in self.breve_unicodes):
+        elif bi_unicode[1]=='0306' or (bi_unicode[0] in self.breve_unicodes) or letter=='ặ' or letter=='Ặ':
             mark_accent = '<8>' # '<BREVE>'
+            
         if bi_unicode[1]=='0300':
             vowel_accent = '<F>'
         elif bi_unicode[1]=='0301':
@@ -113,28 +159,92 @@ class Flattening:
 
         return mark_accent, vowel_accent
 
-    def flatten_letter(self, letter):
-        if letter not in self.accent_letters:
-            return letter, None, None
-        unaccent_letter = self.get_unaccent(letter)
-        mark_accent, vowel_accent = self.get_accents(letter)
-        return unaccent_letter, mark_accent, vowel_accent
-    
-    def flatten_word(self, word):
-        flattened_word, mark_accent_word, vowel_accent_word = '', None, None
-        for letter in word:
-            unaccent_letter, mark_accent, vowel_accent = self.flatten_letter(letter)
-            flattened_word += unaccent_letter
-            if mark_accent!=None:
-                mark_accent_word = mark_accent
-            if vowel_accent!=None:
-                vowel_accent_word = vowel_accent
-        if mark_accent_word!=None:
-            flattened_word += mark_accent_word
-        if vowel_accent_word!=None:
-            flattened_word += vowel_accent_word
-        return flattened_word
+    def invert(self, flattened_word):
+        '''
+        Types:
+        ------
+            - flattened_word: list of unaccent-letters [and <accent-letters> (if any)]
+            Return:
+            - accent_word: list of accent-letters
+        '''
+        accent_word = []
+        for letter in flattened_word:
+            if (len(letter) == 1) or (len(accent_word) == 0) or (letter not in self.accent2unicode):
+                accent_word.append(letter)
+            else: # accent
+                accent_letter = unicodedata.normalize('NFC', accent_word[-1] + self.accent2unicode[letter])
+                accent_word[-1] = accent_letter
+        return accent_word
 
+class Flattening_2(Flattening):
+    '''
+    Flatten with đ, Đ, ơ, Ơ, ư, Ư
+    '''
+    def __init__(self):
+        super().__init__()
+#         self.accent2unicode['<7>'] = '\u031B'
+        self.accent2unicode.update({'<7>': '\u031B', '<9>': None})
+        self._7_unicodes = ['01A0', '01A1', '01AF', '01B0']
+        self.accent_letters.extend(['đ', 'Đ'])
+        
+    def get_unaccent(self, letter):
+        letter = letter.encode('utf-8').decode('utf-8')
+        letter = re.sub(u'đ', 'd', letter)
+        letter = re.sub(u'Đ', 'D', letter)
+        return ''.join(c for c in unicodedata.normalize('NFD', letter)\
+                       if unicodedata.category(c) != 'Mn')
+        
+    def get_accents(self, letter):
+        mark_accent, vowel_accent = None, None
+        bi_unicode = unicodedata.decomposition(letter).split()
+
+        if letter=='đ' or letter=='Đ':
+            mark_accent = '<9>'
+        elif bi_unicode[1]=='0302' or (bi_unicode[0] in self.circumflex_unicodes) or letter=='ậ' or letter=='Ậ':
+            mark_accent = '<6>' # VNI '<CIRCUMFLEX>'
+        elif bi_unicode[1]=='0306' or (bi_unicode[0] in self.breve_unicodes) or letter=='ặ' or letter=='Ặ':
+            mark_accent = '<8>' # '<BREVE>'
+        elif bi_unicode[1]=='031B' or (bi_unicode[0] in self._7_unicodes):
+            mark_accent = '<7>'
+            
+        if letter=='đ' or letter=='Đ':
+            vowel_accent = None
+        elif bi_unicode[1]=='0300':
+            vowel_accent = '<F>'
+        elif bi_unicode[1]=='0301':
+            vowel_accent = '<S>'
+        elif bi_unicode[1]=='0303':
+            vowel_accent = '<X>'
+        elif bi_unicode[1]=='0309':
+            vowel_accent = '<R>'
+        elif bi_unicode[1]=='0323' or (bi_unicode[0] in self.underdot_unicodes):
+            vowel_accent = '<J>'
+
+        return mark_accent, vowel_accent
+    
+    def invert(self, flattened_word):
+        '''
+        Types:
+        ------
+            - flattened_word: list of unaccent-letters [and <accent-letters> (if any)]
+            Return:
+            - accent_word: list of accent-letters
+        '''
+        accent_word = []
+        for letter in flattened_word:
+            if (len(letter) == 1) or (len(accent_word) == 0) or (letter not in self.accent2unicode):
+                accent_word.append(letter)
+            else: # accent
+                if letter == '<9>':
+                    if accent_word[-1] in ['d', 'D']:
+                        accent_letter = ('đ' if accent_word[-1]=='d' else 'Đ')
+                        accent_word[-1] = accent_letter
+                    else:
+                        accent_word.append(letter)
+                else:
+                    accent_letter = unicodedata.normalize('NFC', accent_word[-1] + self.accent2unicode[letter])
+                    accent_word[-1] = accent_letter
+        return accent_word
 
 if __name__ == '__main__':
 

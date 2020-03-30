@@ -31,45 +31,37 @@ class HandcraftFeature(object):
         handcraft_img[:, :, 2] = np.array(hog_image_rescaled)
         handcraft_img = Image.fromarray(np.uint8(handcraft_img))
         return handcraft_img
-    
-class PaddingWidth(object):
-    '''
-    Padding width in case of the width is too small
-    '''
-    def __init__(self, min_width):
-        self.min_width = min_width
 
-    def __call__(self, image):
-        image_width, image_height = image.size
-        width = self.min_width if image_width < self.min_width else image_width
-        padded_image = Image.new('RGB', (width, image_height), color='white')
-        padded_image.paste(image)
-        return padded_image
+class StringTransform(object):
+    def __init__(self, vocab, batch_first=True):
+        self.batch_first = batch_first
+        self.EOS_int = vocab.char2int(vocab.EOS)
+        self.vocab = vocab
 
-def accuracy(outputs, targets):
-    batch_size = outputs.size(0)
-    _, ind = outputs.topk(1, 1, True, True)
-    correct = ind.eq(targets.view(-1, 1).expand_as(ind))
-    correct_total = correct.view(-1).float().sum()  # 0D tensor
-    return correct_total.item() / batch_size
+    def calc_length(self, tensor: torch.tensor):
+        '''
+        Calculate length of each string ends with EOS
+        '''
+        lengths = []
+        for sample in tensor.tolist():
+            try:
+                length = sample.index(self.EOS_int)
+            except:
+                length = len(sample)
+            lengths.append(length)
+        return lengths
 
-class AverageMeter(object):
-    """
-    Keeps track of most recent, average, sum, and count of a metric.
-    """
+    def __call__(self, tensor: torch.tensor):
+        '''
+        Convert a Tensor to a list of Strings
+        '''
+        if not self.batch_first:
+            tensor = tensor.transpose(0,1)
+        lengths = self.calc_length(tensor)
 
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
+        strs = []
+        for i, length in enumerate(lengths):
+            chars = list(map(self.vocab.int2char, tensor[i, :length].tolist()))
+            s = self.vocab.flattening.invert(chars)
+            strs.append(s)
+        return strs
