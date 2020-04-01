@@ -1,5 +1,5 @@
 import torch
-from model.transformer import PositionalEncoding1d, PositionalEncoding2d
+from model.positional_encoding import PositionalEncoding1d, PositionalEncoding2d
 import unittest
 import math
 

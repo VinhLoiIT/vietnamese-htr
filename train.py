@@ -86,14 +86,14 @@ def main(args):
                                  args.debug,
                                  flatten_type=config.get('flatten_type', None))
 
-    if config['dataset'] == 'vnondb':
+    if config['dataset'] in ['vnondb', 'vnondb_line']:
         vocab = VNOnDB.vocab
 
     logger.info('Vocab size = {}'.format(vocab.size))
 
     if config['cnn'] == 'densenet':
         cnn_config = root_config['densenet']
-        cnn = DenseNetFE()
+        cnn = DenseNetFE('densenet161', True)
     elif config['cnn'] == 'squeezenet':
         cnn = SqueezeNetFE()
     elif config['cnn'] == 'efficientnet':
@@ -225,7 +225,11 @@ def main(args):
     evaluator = Engine(step_val)
     Running(Loss(criterion, output_transform=lambda output: output[:2])).attach(evaluator, 'Loss')
     Running(CharacterErrorRate(output_transform=OutputTransform(vocab, True))).attach(evaluator, 'CER')
-    Running(WordErrorRate(output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
+    if config['dataset'] == 'vnondb_line':
+        Running(WordErrorRate(level='line', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
+    else:
+        Running(WordErrorRate(level='word', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
+    
 
     eval_pbar = ProgressBar(ncols=0, ascii=True, position=0)
     eval_pbar.attach(evaluator, 'all')

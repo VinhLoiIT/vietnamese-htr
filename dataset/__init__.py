@@ -8,34 +8,31 @@ from .vnondb import VNOnDB
 
 
 def _get_dataset_partition_helper(dataset, partition, transform, flatten_type):
-    if dataset not in ['vnondb', 'rimes', 'iam']:
-        raise ValueError('Should be: ' + str(['vnondb', 'rimes', 'iam']))
+    if dataset in ['vnondb', 'vnondb_line']:
+        if dataset == 'vnondb':
+            train_csv = './data/VNOnDB/train_word.csv'
+            test_csv = './data/VNOnDB/test_word.csv'
+            validation_csv = './data/VNOnDB/validation_word.csv'
+            test_image_folder = './data/VNOnDB/test_word'
+            train_image_folder = './data/VNOnDB/train_word'
+            validation_image_folder = './data/VNOnDB/validation_word'
+        else:
+            train_csv = './data/VNOnDB/line/train_line.csv'
+            test_csv = './data/VNOnDB/line/test_line.csv'
+            validation_csv = './data/VNOnDB/line/validation_line.csv'
+            test_image_folder = './data/VNOnDB/line/test_line'
+            train_image_folder = './data/VNOnDB/line/train_line'
+            validation_image_folder = './data/VNOnDB/line/validation_line'
 
-    if partition not in ['train', 'test', 'val', 'trainval']:
-        raise ValueError('Should be: ' + str(['train', 'test', 'val', 'trainval']))
-
-    if dataset == 'vnondb':
         if partition == 'test':
-            return VNOnDB('./data/VNOnDB/test_word', './data/VNOnDB/test_word.csv', transform, flatten_type)
+            return VNOnDB(test_image_folder, test_csv, train_csv, transform, flatten_type)
         if partition == 'train':
-            return VNOnDB('./data/VNOnDB/train_word', './data/VNOnDB/train_word.csv', transform, flatten_type)
+            return VNOnDB(train_image_folder, train_csv, train_csv, transform, flatten_type)
         if partition == 'val':
-            return VNOnDB('./data/VNOnDB/validation_word', './data/VNOnDB/validation_word.csv', transform, flatten_type)
+            return VNOnDB(validation_image_folder, validation_csv, train_csv, transform, flatten_type)
         if partition == 'trainval':
-            train = VNOnDB('./data/VNOnDB/train_word', './data/VNOnDB/train_word.csv', transform, flatten_type)
-            val = VNOnDB('./data/VNOnDB/validation_word', './data/VNOnDB/validation_word.csv', transform, flatten_type)
-            return ConcatDataset([train, val])
-        return None
-    elif dataset == 'vnondb_line':
-        if partition == 'test':
-            return VNOnDB('./data/VNOnDB/line/test_line', './data/VNOnDB/line/test_line.csv', transform)
-        if partition == 'train':
-            return VNOnDB('./data/VNOnDB/line/train_line', './data/VNOnDB/line/train_line.csv', transform)
-        if partition == 'val':
-            return VNOnDB('./data/VNOnDB/line/validation_line', './data/VNOnDB/line/validation_line.csv', transform)
-        if partition == 'trainval':
-            train = VNOnDB('./data/VNOnDB/line/train_line', './data/VNOnDB/line/train_line.csv', transform)
-            val = VNOnDB('./data/VNOnDB/line/validation_line', './data/VNOnDB/line/validation_line.csv', transform)
+            train = VNOnDB(train_image_folder, train_csv, train_csv, transform, flatten_type)
+            val = VNOnDB(validation_image_folder, validation_csv, train_csv, transform, flatten_type)
             return ConcatDataset([train, val])
         return None
     elif dataset == 'rimes':

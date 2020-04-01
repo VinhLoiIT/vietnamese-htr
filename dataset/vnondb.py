@@ -12,16 +12,16 @@ from .vocab import CollateWrapper, Vocab
 from typing import Union, List
 
 class VNOnDBVocab(Vocab):
-    def __init__(self):
+    def __init__(self, train_csv: str):
+        self.train_csv = train_csv
         super().__init__()
-        df = pd.read_csv('./data/VNOnDB/train_word.csv', sep='\t', keep_default_na=False, index_col=0)
-        df['label'] = df['label'].astype(str).apply(self.process_label).apply(self.add_signals)
-        df['counter'] = df['label'].apply(lambda word: Counter(word))
-        counter = df['counter'].sum()
-        counter.update({self.UNK: 0})
-        self.alphabets = list(counter.keys())
-        self.class_weight = torch.tensor([1. / counter[char] if counter[char] > 0 else 0 for char in self.alphabets])
-        self.size = len(self.alphabets)
+
+    def load_labels(self) -> pd.Series:
+        '''
+        Load labels from train partition
+        '''
+        df = pd.read_csv(self.train_csv, sep='\t', keep_default_na=False, index_col=0)
+        return df['label'].astype(str)
 
     def process_label(self, label: List[str]):
         '''
@@ -59,14 +59,14 @@ class VNOnDBVocab(Vocab):
 
 class VNOnDBVocabFlatten(VNOnDBVocab):
 
-    def __init__(self, flattening: str):
+    def __init__(self, train_csv: str, flattening: str):
         if flattening == 'flattening_1':
             self.flattening = Flattening_1()
         elif flattening == 'flattening_2':
             self.flattening = Flattening_2()
         else:
             raise ValueError(f'Unknow flattening type {flattening}, should be "flattening_1" or "flattening_2"')
-        super().__init__()
+        super().__init__(train_csv)
 
     def process_label(self, label: List[str]):
         '''
@@ -275,14 +275,15 @@ class VNOnDB(Dataset):
     def __init__(self,
         image_folder: str,
         csv: str,
+        train_csv: str=None,
         image_transform=None,
         flatten_type: str=None
     ):
         if VNOnDB.vocab is None:
             if flatten_type is not None:
-                VNOnDB.vocab = VNOnDBVocabFlatten(flatten_type)
+                VNOnDB.vocab = VNOnDBVocabFlatten(train_csv, flatten_type)
             else:
-                VNOnDB.vocab = VNOnDBVocab()
+                VNOnDB.vocab = VNOnDBVocab(train_csv)
         self.image_transform = image_transform
 
         self.df = pd.read_csv(csv, sep='\t', keep_default_na=False, index_col=0)

@@ -17,10 +17,25 @@ class Vocab(object):
     def UNK(self):
         return '<unk>'
 
-    def char2int(self, c):
+    def __init__(self):
+        labels = self.load_labels().apply(self.process_label).apply(self.add_signals)
+        counter = labels.apply(lambda word: Counter(word))
+        counter = counter.sum()
+        counter.update({self.UNK: 0})
+        self.alphabets = list(counter.keys())
+        self.class_weight = torch.tensor([1. / counter[char] if counter[char] > 0 else 0 for char in self.alphabets])
+        self.size = len(self.alphabets)
+
+    def load_labels(self) -> pd.Series:
+        '''
+        Load labels from train partition
+        '''
         raise NotImplementedError()
 
-    def int2char(self, i):
+    def char2int(self, c: str) -> int:
+        raise NotImplementedError()
+
+    def int2char(self, i: int) -> str:
         raise NotImplementedError()
 
 class CollateWrapper:
