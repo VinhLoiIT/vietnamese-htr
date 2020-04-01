@@ -62,6 +62,6 @@ class StringTransform(object):
         strs = []
         for i, length in enumerate(lengths):
             chars = list(map(self.vocab.int2char, tensor[i, :length].tolist()))
-            s = self.vocab.flattening.invert(chars)
-            strs.append(s)
+            chars = self.vocab.process_label_invert(chars)
+            strs.append(chars)
         return strs

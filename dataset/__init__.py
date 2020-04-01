@@ -7,7 +7,7 @@ from .rimes import RIMES
 from .vnondb import VNOnDB
 
 
-def _get_dataset_partition_helper(dataset, partition, transform):
+def _get_dataset_partition_helper(dataset, partition, transform, flatten_type):
     if dataset not in ['vnondb', 'rimes', 'iam']:
         raise ValueError('Should be: ' + str(['vnondb', 'rimes', 'iam']))
 
@@ -16,14 +16,26 @@ def _get_dataset_partition_helper(dataset, partition, transform):
 
     if dataset == 'vnondb':
         if partition == 'test':
-            return VNOnDB('./data/VNOnDB/test_word', './data/VNOnDB/test_word.csv', transform)
+            return VNOnDB('./data/VNOnDB/test_word', './data/VNOnDB/test_word.csv', transform, flatten_type)
         if partition == 'train':
-            return VNOnDB('./data/VNOnDB/train_word', './data/VNOnDB/train_word.csv', transform)
+            return VNOnDB('./data/VNOnDB/train_word', './data/VNOnDB/train_word.csv', transform, flatten_type)
         if partition == 'val':
-            return VNOnDB('./data/VNOnDB/validation_word', './data/VNOnDB/validation_word.csv', transform)
+            return VNOnDB('./data/VNOnDB/validation_word', './data/VNOnDB/validation_word.csv', transform, flatten_type)
         if partition == 'trainval':
-            train = VNOnDB('./data/VNOnDB/train_word', './data/VNOnDB/train_word.csv', transform)
-            val = VNOnDB('./data/VNOnDB/validation_word', './data/VNOnDB/validation_word.csv', transform)
+            train = VNOnDB('./data/VNOnDB/train_word', './data/VNOnDB/train_word.csv', transform, flatten_type)
+            val = VNOnDB('./data/VNOnDB/validation_word', './data/VNOnDB/validation_word.csv', transform, flatten_type)
+            return ConcatDataset([train, val])
+        return None
+    elif dataset == 'vnondb_line':
+        if partition == 'test':
+            return VNOnDB('./data/VNOnDB/line/test_line', './data/VNOnDB/line/test_line.csv', transform)
+        if partition == 'train':
+            return VNOnDB('./data/VNOnDB/line/train_line', './data/VNOnDB/line/train_line.csv', transform)
+        if partition == 'val':
+            return VNOnDB('./data/VNOnDB/line/validation_line', './data/VNOnDB/line/validation_line.csv', transform)
+        if partition == 'trainval':
+            train = VNOnDB('./data/VNOnDB/line/train_line', './data/VNOnDB/line/train_line.csv', transform)
+            val = VNOnDB('./data/VNOnDB/line/validation_line', './data/VNOnDB/line/validation_line.csv', transform)
             return ConcatDataset([train, val])
         return None
     elif dataset == 'rimes':
@@ -48,9 +60,9 @@ def _get_dataset_partition_helper(dataset, partition, transform):
 def collate_fn(batch):
     return CollateWrapper(batch)
 
-def get_data_loader(dataset, partition, batch_size, num_workers=1, transform=None, debug=False):
-    data = _get_dataset_partition_helper(dataset, partition, transform)
-    shuffle = partition == 'train'
+def get_data_loader(dataset, partition, batch_size, num_workers=1, transform=None, debug=False, flatten_type:str=None):
+    data = _get_dataset_partition_helper(dataset, partition, transform, flatten_type)
+    shuffle = partition in ['train', 'trainval']
 
     if debug:
         data = Subset(data, torch.arange(batch_size*5 + batch_size//2).numpy())

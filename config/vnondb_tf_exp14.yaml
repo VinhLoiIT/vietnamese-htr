@@ -2,6 +2,7 @@ common:
     dataset: vnondb
     cnn: resnet
     optimizer: adam
+    flatten_type: flattening_2 # flattening_1, flattening_2, or leave blank
     batch_size: 16
     scale_height: 64
     max_length: 10

@@ -15,8 +15,8 @@ from ignite.contrib.handlers.tensorboard_logger import TensorboardLogger, Output
 from ignite.contrib.handlers import ProgressBar
 from torchvision import transforms
 
-from dataset import get_data_loader
-from model import ModelTF, ModelRNN, DenseNetFE, SqueezeNetFE, EfficientNetFE, CustomFE, ResnetFE
+from dataset import get_data_loader, VNOnDB
+from model import ModelTF, ModelRNN, DenseNetFE, SqueezeNetFE, EfficientNetFE, CustomFE, ResnetFE, ResnextFE
 from utils import ScaleImageByHeight, StringTransform
 from metrics import CharacterErrorRate, WordErrorRate, Running
 from losses import FocalLoss
@@ -64,6 +64,7 @@ def main(args):
         ImageOps.invert,
         ScaleImageByHeight(config['scale_height']),
         transforms.Grayscale(3),
+        transforms.RandomRotation(10),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225]),
@@ -74,17 +75,20 @@ def main(args):
                                    config['batch_size'],
                                    args.num_workers,
                                    image_transform,
-                                   args.debug)
+                                   args.debug,
+                                   flatten_type=config.get('flatten_type', None))
 
     val_loader = get_data_loader(config['dataset'],
-                                 'val',
+                                 'test' if args.trainval else 'val',
                                  config['batch_size'],
                                  args.num_workers,
-                                 image_transform, args.debug)
-    if args.debug:
-        vocab = train_loader.dataset.dataset.vocab
-    else:
-        vocab = train_loader.dataset.vocab
+                                 image_transform,
+                                 args.debug,
+                                 flatten_type=config.get('flatten_type', None))
+
+    if config['dataset'] == 'vnondb':
+        vocab = VNOnDB.vocab
+
     logger.info('Vocab size = {}'.format(vocab.size))
 
     if config['cnn'] == 'densenet':
@@ -98,6 +102,8 @@ def main(args):
         cnn = CustomFE(3)
     elif config['cnn'] == 'resnet':
         cnn = ResnetFE('resnet18')
+    elif config['cnn'] == 'resnext':
+        cnn = ResnextFE('resnext50')
     else:
         raise ValueError('Unknow CNN {}'.format(config['cnn']))
 

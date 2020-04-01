@@ -9,54 +9,76 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 from .vocab import CollateWrapper, Vocab
-
+from typing import Union, List
 
 class VNOnDBVocab(Vocab):
     def __init__(self):
         super().__init__()
-        self.flattening = Flattening_1()
         df = pd.read_csv('./data/VNOnDB/train_word.csv', sep='\t', keep_default_na=False, index_col=0)
-        df['counter'] = df['label'].apply(lambda word: Counter([self.SOS] + self.flattening.flatten_word(list(word)) + [self.EOS]))
+        df['label'] = df['label'].astype(str).apply(self.process_label).apply(self.add_signals)
+        df['counter'] = df['label'].apply(lambda word: Counter(word))
         counter = df['counter'].sum()
         counter.update({self.UNK: 0})
         self.alphabets = list(counter.keys())
         self.class_weight = torch.tensor([1. / counter[char] if counter[char] > 0 else 0 for char in self.alphabets])
         self.size = len(self.alphabets)
 
-    def char2int(self, c):
+    def process_label(self, label: List[str]):
+        '''
+        Preprocess label (if needed), such as flattening out diacritical marks
+        '''
+        return label
+
+    def process_label_invert(self, labels: List[List[str]]):
+        '''
+        Invert preprocessed label (if have), such as invert flattening diacritical marks
+        '''
+        return labels
+
+    def add_signals(self, word: str):
+        '''
+        Add Start Of Sequence (SOS) and End Of Sequence (EOS) signals to string
+        '''
+        return sum([[self.SOS], list(word), [self.EOS]], [])
+
+    def char2int(self, c: str):
+        '''
+        Convert character representation to index.
+        Return index of UNK if unknow character
+        '''
         try:
             return self.alphabets.index(c)
         except:
             return self.alphabets.index(self.UNK)
 
-    def int2char(self, i):
+    def int2char(self, i: int):
+        '''
+        Convert an index to character representation
+        '''
         return self.alphabets[i]
 
-class VNOnDB(Dataset):
-    vocab = None
+class VNOnDBVocabFlatten(VNOnDBVocab):
 
-    def __init__(self, image_folder, csv, image_transform=None):
-        if self.vocab is None:
-            self.vocab = VNOnDBVocab()
-        self.image_transform = image_transform
+    def __init__(self, flattening: str):
+        if flattening == 'flattening_1':
+            self.flattening = Flattening_1()
+        elif flattening == 'flattening_2':
+            self.flattening = Flattening_2()
+        else:
+            raise ValueError(f'Unknow flattening type {flattening}, should be "flattening_1" or "flattening_2"')
+        super().__init__()
 
-        self.df = pd.read_csv(csv, sep='\t', keep_default_na=False, index_col=0)
-        self.df['id'] = self.df['id'].apply(lambda id: os.path.join(image_folder, id+'.png'))
-        self.df['label'] = self.df['label'].apply(lambda x: [self.vocab.SOS] + self.vocab.flattening.flatten_word(list(x)) + [self.vocab.EOS])
+    def process_label(self, label: List[str]):
+        '''
+        Preprocess label (if needed), such as flattening out diacritical marks
+        '''
+        return self.flattening.flatten_word(label)
 
-    def __len__(self):
-        return len(self.df)
-    
-    def __getitem__(self, idx):
-        image_path = self.df['id'][idx]
-        image = Image.open(image_path).convert('L')
-        
-        if self.image_transform:
-            image = self.image_transform(image)
-        
-        label = torch.tensor(list(map(self.vocab.char2int, self.df['label'][idx])))
-            
-        return image, label
+    def process_label_invert(self, label: List[str]):
+        '''
+        Invert preprocessed label (if have), such as invert flattening diacritical marks
+        '''
+        return self.flattening.invert(label)
 
 class Flattening(object):
     def __init__(self):
@@ -245,6 +267,41 @@ class Flattening_2(Flattening):
                     accent_letter = unicodedata.normalize('NFC', accent_word[-1] + self.accent2unicode[letter])
                     accent_word[-1] = accent_letter
         return accent_word
+
+class VNOnDB(Dataset):
+
+    vocab : VNOnDBVocab = None
+
+    def __init__(self,
+        image_folder: str,
+        csv: str,
+        image_transform=None,
+        flatten_type: str=None
+    ):
+        if VNOnDB.vocab is None:
+            if flatten_type is not None:
+                VNOnDB.vocab = VNOnDBVocabFlatten(flatten_type)
+            else:
+                VNOnDB.vocab = VNOnDBVocab()
+        self.image_transform = image_transform
+
+        self.df = pd.read_csv(csv, sep='\t', keep_default_na=False, index_col=0)
+        self.df['id'] = self.df['id'].apply(lambda id: os.path.join(image_folder, id+'.png'))
+        self.df['label'] = self.df['label'].apply(VNOnDB.vocab.process_label).apply(VNOnDB.vocab.add_signals)
+
+    def __len__(self):
+        return len(self.df)
+    
+    def __getitem__(self, idx):
+        image_path = self.df['id'][idx]
+        image = Image.open(image_path).convert('L')
+        
+        if self.image_transform:
+            image = self.image_transform(image)
+        
+        label = torch.tensor(list(map(VNOnDB.vocab.char2int, self.df['label'][idx])))
+            
+        return image, label
 
 if __name__ == '__main__':
 

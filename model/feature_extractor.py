@@ -169,7 +169,6 @@ class ResnetFE(FE):
         resnet = ResnetFE.version[version](pretrained=True)
         self.n_features = resnet.fc.in_features
         self.cnn = nn.Sequential(*list(resnet.children())[:-2])
-        self.pool = nn.AdaptiveMaxPool2d((1,None))
 
     def get_cnn(self):
         return self.cnn
@@ -179,5 +178,27 @@ class ResnetFE(FE):
 
     def forward(self, x):
         x = self.cnn(x)
-        x = self.pool(x)
+        return x
+
+class ResnextFE(FE):
+
+    version = {
+        'resnext50': torchvision.models.resnext50_32x4d,
+        'resnext101': torchvision.models.resnext101_32x8d,
+    }
+
+    def __init__(self, version='resnext50'):
+        super().__init__()
+        resnet = ResnextFE.version[version](pretrained=True)
+        self.n_features = resnet.fc.in_features
+        self.cnn = nn.Sequential(*list(resnet.children())[:-2])
+
+    def get_cnn(self):
+        return self.cnn
+
+    def get_n_features(self):
+        return self.n_features
+
+    def forward(self, x):
+        x = self.cnn(x)
         return x
