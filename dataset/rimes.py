@@ -5,6 +5,7 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
+import pandas as pd
 from .vocab import CollateWrapper, Vocab
 
 
@@ -12,28 +13,21 @@ class RIMESVocab(Vocab):
     def __init__(self):
         super().__init__()
 
-        counter = Counter()
+    def load_labels(self) -> pd.Series:
+        '''
+        Load labels from train partition
+        '''
         with open ('./data/RIMES/groundtruth_training_icdar2011.txt') as f:
             content = f.readlines()
-        [counter.update([self.SOS] + list(x.strip().split(' ')[-1]) + [self.EOS]) for x in content]
-        self.alphabets = list(counter.keys())
-        self.class_weight = [1. / counter[char] if counter[char] > 0 else 0 for char in self.alphabets]
-        self.size = len(self.alphabets)
-
-    def char2int(self, c):
-        try:
-            return self.alphabets.index(c)
-        except:
-            return self.alphabets.index(self.UNK)
-
-    def int2char(self, i):
-        return self.alphabets[i]
+        content = [line.strip().split(' ')[-1] for line in content]
+        label = pd.Series(content, dtype=str)
+        return label
 
 class RIMES(Dataset):
     vocab = None
     def __init__(self, image_folder, groundtruth_txt, image_transform=None):
-        if self.vocab is None:
-            self.vocab = RIMESVocab()
+        if RIMES.vocab is None:
+            RIMES.vocab = RIMESVocab()
         with open (groundtruth_txt, encoding='utf-8-sig') as f:
             content = f.readlines()
 

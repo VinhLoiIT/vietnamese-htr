@@ -23,40 +23,6 @@ class VNOnDBVocab(Vocab):
         df = pd.read_csv(self.train_csv, sep='\t', keep_default_na=False, index_col=0)
         return df['label'].astype(str)
 
-    def process_label(self, label: List[str]):
-        '''
-        Preprocess label (if needed), such as flattening out diacritical marks
-        '''
-        return label
-
-    def process_label_invert(self, labels: List[List[str]]):
-        '''
-        Invert preprocessed label (if have), such as invert flattening diacritical marks
-        '''
-        return labels
-
-    def add_signals(self, word: str):
-        '''
-        Add Start Of Sequence (SOS) and End Of Sequence (EOS) signals to string
-        '''
-        return sum([[self.SOS], list(word), [self.EOS]], [])
-
-    def char2int(self, c: str):
-        '''
-        Convert character representation to index.
-        Return index of UNK if unknow character
-        '''
-        try:
-            return self.alphabets.index(c)
-        except:
-            return self.alphabets.index(self.UNK)
-
-    def int2char(self, i: int):
-        '''
-        Convert an index to character representation
-        '''
-        return self.alphabets[i]
-
 class VNOnDBVocabFlatten(VNOnDBVocab):
 
     def __init__(self, train_csv: str, flattening: str):

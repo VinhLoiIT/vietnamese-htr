@@ -10,12 +10,12 @@ from .vnondb import VNOnDB
 def _get_dataset_partition_helper(dataset, partition, transform, flatten_type):
     if dataset in ['vnondb', 'vnondb_line']:
         if dataset == 'vnondb':
-            train_csv = './data/VNOnDB/train_word.csv'
-            test_csv = './data/VNOnDB/test_word.csv'
-            validation_csv = './data/VNOnDB/validation_word.csv'
-            test_image_folder = './data/VNOnDB/test_word'
-            train_image_folder = './data/VNOnDB/train_word'
-            validation_image_folder = './data/VNOnDB/validation_word'
+            train_csv = './data/VNOnDB/word/train_word.csv'
+            test_csv = './data/VNOnDB/word/test_word.csv'
+            validation_csv = './data/VNOnDB/word/validation_word.csv'
+            test_image_folder = './data/VNOnDB/word/test_word'
+            train_image_folder = './data/VNOnDB/word/train_word'
+            validation_image_folder = './data/VNOnDB/word/validation_word'
         else:
             train_csv = './data/VNOnDB/line/train_line.csv'
             test_csv = './data/VNOnDB/line/test_line.csv'

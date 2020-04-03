@@ -3,6 +3,8 @@ import pandas as pd
 from torch.nn.utils.rnn import pad_sequence
 from collections import Counter
 
+from typing import List
+
 class Vocab(object):
 
     @property
@@ -32,11 +34,39 @@ class Vocab(object):
         '''
         raise NotImplementedError()
 
+    def process_label(self, label: List[str]):
+        '''
+        Preprocess label (if needed), such as flattening out diacritical marks
+        '''
+        return label
+
+    def process_label_invert(self, labels: List[List[str]]):
+        '''
+        Invert preprocessed label (if have), such as invert flattening diacritical marks
+        '''
+        return labels
+
+    def add_signals(self, word: str):
+        '''
+        Add Start Of Sequence (SOS) and End Of Sequence (EOS) signals to string
+        '''
+        return sum([[self.SOS], list(word), [self.EOS]], [])
+
     def char2int(self, c: str) -> int:
-        raise NotImplementedError()
+        '''
+        Convert character representation to index.
+        Return index of UNK if unknow character
+        '''
+        try:
+            return self.alphabets.index(c)
+        except:
+            return self.alphabets.index(self.UNK)
 
     def int2char(self, i: int) -> str:
-        raise NotImplementedError()
+        '''
+        Convert an index to character representation
+        '''
+        return self.alphabets[i]
 
 class CollateWrapper:
     def __init__(self, batch):
