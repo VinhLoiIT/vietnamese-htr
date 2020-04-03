@@ -14,7 +14,7 @@ class ScaleImageByHeight(object):
         factor = self.target_height / height
         new_width = int(width * factor)
         new_height = int(height * factor)
-        image = image.resize((new_width, new_height))
+        image = image.resize((new_width, new_height), Image.NEAREST)
         return image
     
 class HandcraftFeature(object):

@@ -15,8 +15,8 @@ from ignite.contrib.handlers.tensorboard_logger import TensorboardLogger, Output
 from ignite.contrib.handlers import ProgressBar
 from torchvision import transforms
 
-from dataset import get_data_loader, VNOnDB
-from model import ModelTF, ModelRNN, DenseNetFE, SqueezeNetFE, EfficientNetFE, CustomFE, ResnetFE, ResnextFE
+from dataset import get_data_loader, VNOnDB, RIMES
+from model import ModelTF, ModelRNN, ModelTFEncoder, DenseNetFE, SqueezeNetFE, EfficientNetFE, CustomFE, ResnetFE, ResnextFE
 from utils import ScaleImageByHeight, StringTransform
 from metrics import CharacterErrorRate, WordErrorRate, Running
 from losses import FocalLoss
@@ -88,6 +88,8 @@ def main(args):
 
     if config['dataset'] in ['vnondb', 'vnondb_line']:
         vocab = VNOnDB.vocab
+    elif config['dataset'] == 'rimes':
+        vocab = RIMES.vocab
 
     logger.info('Vocab size = {}'.format(vocab.size))
 
@@ -109,7 +111,10 @@ def main(args):
 
     if args.model == 'tf':
         model_config = root_config['tf']
-        model = ModelTF(cnn, vocab, model_config)
+        if model_config['use_encoder']:
+            model = ModelTFEncoder(cnn, vocab, model_config)
+        else:
+            model = ModelTF(cnn, vocab, model_config)
     elif args.model == 's2s':
         model_config = root_config['s2s']
         model = ModelRNN(cnn, vocab, model_config)

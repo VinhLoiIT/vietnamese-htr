@@ -169,6 +169,7 @@ class ResnetFE(FE):
         resnet = ResnetFE.version[version](pretrained=True)
         self.n_features = resnet.fc.in_features
         self.cnn = nn.Sequential(*list(resnet.children())[:-2])
+        self.pool = nn.AdaptiveAvgPool2d((1, None))
 
     def get_cnn(self):
         return self.cnn
@@ -178,6 +179,7 @@ class ResnetFE(FE):
 
     def forward(self, x):
         x = self.cnn(x)
+        x = self.pool(x)
         return x
 
 class ResnextFE(FE):
@@ -201,4 +203,28 @@ class ResnextFE(FE):
 
     def forward(self, x):
         x = self.cnn(x)
+        return x
+
+class DeformResnetFE(ResnetFE):
+
+    version = {
+        'resnet50': torchvision.models.resnet50,
+        'resnet18': torchvision.models.resnet18,
+        'resnet34': torchvision.models.resnet34,
+    }
+
+    def __init__(self, version='resnet50'):
+        super().__init__(version)
+        self.deform = torchvision.ops.DeformConv2d(self.n_features, self.n_features, (3,3))
+
+    def get_cnn(self):
+        return self.cnn
+
+    def get_n_features(self):
+        return self.n_features
+
+    def forward(self, x):
+        x = self.cnn(x)
+        x = self.deform(x)
+        x = self.pool(x)
         return x
