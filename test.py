@@ -106,12 +106,14 @@ def main(args):
     model.load_state_dict(checkpoint['model'])
     model.eval()
     model.to(device)
-    greedy = model.module.greedy if multi_gpus else model.greedy
+    beamsearch = model.module.beamsearch if multi_gpus else model.beamsearch
+    # greedy = model.module.greedy if multi_gpus else model.greedy
 
     @torch.no_grad()
     def step_val(engine, batch):
         imgs, targets = batch.images.to(device), batch.labels.to(device)
-        outputs = greedy(imgs, targets[:, 0], config['max_length'])
+        # outputs = greedy(imgs, targets[:, 0], config['max_length'])
+        outputs = beamsearch(imgs, targets[:, 0], config['max_length'], 10)
         return outputs, targets[:, 1:]
 
     evaluator = Engine(step_val)
@@ -119,7 +121,7 @@ def main(args):
     if config['dataset'] == 'vnondb_line':
         Running(WordErrorRate(logfile='wer.txt', level='line', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
     else:
-        Running(WordErrorRate(level='word', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
+        Running(WordErrorRate(logfile='word.txt', level='word', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
 
     eval_pbar = ProgressBar(ncols=0, ascii=True, position=0)
     eval_pbar.attach(evaluator, 'all')
