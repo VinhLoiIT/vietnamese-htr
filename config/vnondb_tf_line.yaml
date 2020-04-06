@@ -22,6 +22,8 @@ tf:
     nhead: 8
     dim_feedforward: 2048
     dropout: 0.1
-    encoder_nlayers: 1
-    decoder_nlayers: 1
+    encoder_nlayers: 6
+    decoder_nlayers: 6
     use_encoder: True
+    use_pe_text: True
+    use_pe_image: True

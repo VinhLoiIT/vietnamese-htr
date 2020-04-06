@@ -213,9 +213,11 @@ class DeformResnetFE(ResnetFE):
         'resnet34': torchvision.models.resnet34,
     }
 
-    def __init__(self, version='resnet50'):
+    def __init__(self, version='resnet50', groups=1, kernel_size=(3,3)):
         super().__init__(version)
-        self.deform = torchvision.ops.DeformConv2d(self.n_features, self.n_features, (3,3))
+        self.offsets = nn.Conv2d(self.n_features, 2*groups*kernel_size[0]*kernel_size[1], kernel_size=kernel_size)
+        self.deform = torchvision.ops.DeformConv2d(self.n_features, self.n_features, kernel_size, groups=groups)
+        self.bn = nn.BatchNorm2d(self.deform.out_channels)
 
     def get_cnn(self):
         return self.cnn
@@ -225,6 +227,8 @@ class DeformResnetFE(ResnetFE):
 
     def forward(self, x):
         x = self.cnn(x)
-        x = self.deform(x)
+        offsets = self.offsets(x)
+        x = self.deform(x, offsets)
+        x = F.relu(self.bn(x))
         x = self.pool(x)
         return x
