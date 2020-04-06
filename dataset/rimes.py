@@ -34,7 +34,7 @@ class RIMES(Dataset):
         for i, line in enumerate(content):
             if len(line.strip().split(' ')) <= 1:
                 print(f'Remove line {i}: {line}')
-        content = [line for line in content if len(line.strip().split(' ')) > 1]
+        content = [line for line in content[1:] if len(line.strip().split(' ')) > 1]
         self.image_paths, self.labels = list(zip(*[x.strip().split(' ') for x in content]))
         self.image_paths = [os.path.join(image_folder, path) for path in self.image_paths]
         self.image_transform = image_transform
