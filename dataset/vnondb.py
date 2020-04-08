@@ -12,9 +12,9 @@ from .vocab import CollateWrapper, Vocab
 from typing import Union, List
 
 class VNOnDBVocab(Vocab):
-    def __init__(self, train_csv: str):
+    def __init__(self, train_csv: str, add_blank: bool):
         self.train_csv = train_csv
-        super().__init__()
+        super().__init__(add_blank)
 
     def load_labels(self) -> pd.Series:
         '''
@@ -25,14 +25,14 @@ class VNOnDBVocab(Vocab):
 
 class VNOnDBVocabFlatten(VNOnDBVocab):
 
-    def __init__(self, train_csv: str, flattening: str):
+    def __init__(self, train_csv: str, flattening: str, add_blank: bool):
         if flattening == 'flattening_1':
             self.flattening = Flattening_1()
         elif flattening == 'flattening_2':
             self.flattening = Flattening_2()
         else:
             raise ValueError(f'Unknow flattening type {flattening}, should be "flattening_1" or "flattening_2"')
-        super().__init__(train_csv)
+        super().__init__(train_csv, add_blank)
 
     def process_label(self, label: List[str]):
         '''
@@ -243,13 +243,14 @@ class VNOnDB(Dataset):
         csv: str,
         train_csv: str=None,
         image_transform=None,
-        flatten_type: str=None
+        flatten_type: str=None,
+        add_blank: bool=False,
     ):
         if VNOnDB.vocab is None:
             if flatten_type is not None:
-                VNOnDB.vocab = VNOnDBVocabFlatten(train_csv, flatten_type)
+                VNOnDB.vocab = VNOnDBVocabFlatten(train_csv, flatten_type, add_blank)
             else:
-                VNOnDB.vocab = VNOnDBVocab(train_csv)
+                VNOnDB.vocab = VNOnDBVocab(train_csv, add_blank)
         self.image_transform = image_transform
 
         self.df = pd.read_csv(csv, sep='\t', keep_default_na=False, index_col=0)

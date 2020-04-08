@@ -10,8 +10,8 @@ from .vocab import CollateWrapper, Vocab
 
 
 class RIMESVocab(Vocab):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, add_blank: bool):
+        super().__init__(add_blank)
 
     def load_labels(self) -> pd.Series:
         '''
@@ -25,9 +25,9 @@ class RIMESVocab(Vocab):
 
 class RIMES(Dataset):
     vocab = None
-    def __init__(self, image_folder, groundtruth_txt, image_transform=None):
+    def __init__(self, image_folder, groundtruth_txt, image_transform=None, add_blank: bool=False):
         if RIMES.vocab is None:
-            RIMES.vocab = RIMESVocab()
+            RIMES.vocab = RIMESVocab(add_blank)
         with open (groundtruth_txt, encoding='utf-8-sig') as f:
             content = f.readlines()
 

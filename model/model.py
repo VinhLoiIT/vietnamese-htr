@@ -3,28 +3,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from queue import PriorityQueue
-from typing import List
+from typing import List, Dict, Tuple
 from .attention import get_attention
 from .positional_encoding import PositionalEncoding1d, PositionalEncoding2d
 
 __all__ = [
-    'Model', 'ModelTF', 'ModelRNN'
+    'Model', 'ModelTF', 'ModelRNN', 'ModelTFEncoder',
 ]
 
 class _BeamSearchNode(object):
-    def __init__(self, 
+    def __init__(self,
         prev_chars: List,
         prev_node: '_BeamSearchNode',
         current_char: int,
         log_prob: float,
         length: int
     ):
-        '''
-        Shapes:
-        -------
-            - prev_chars: 
-            - current_char: 
-        '''
         self.prev_chars = prev_chars
         self.prev_node = prev_node
         self.current_char = current_char
@@ -48,12 +42,15 @@ class _BeamSearchNode(object):
         return new_node
 
 class Model(nn.Module):
+    '''
+    Base class for all models
+    '''
     def __init__(self, cnn, vocab):
         super().__init__()
         self.cnn = cnn
         self.vocab = vocab
 
-    def embed_image(self, images):
+    def embed_image(self, images: torch.Tensor) -> torch.Tensor:
         '''
         Shapes:
         -------
@@ -70,7 +67,7 @@ class Model(nn.Module):
         image_features = image_features.transpose(1,2) # [B, S, C']
         return image_features
 
-    def embed_text(self, text):
+    def embed_text(self, text: torch.Tensor) -> torch.Tensor:
         '''
         Shapes:
         -------
@@ -83,14 +80,12 @@ class Model(nn.Module):
         text = F.one_hot(text, self.vocab.size).float().to(text.device)
         return text
 
-    def forward(self, images, labels):
+    def forward(self, images: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         '''
         Shapes:
         -------
             - images: [B,C,H,W]
             - labels: [B,T]
-            - image_sizes: [B,2]
-            - label_lengths: [B]
 
         Returns:
             - outputs: [B,T,V]
@@ -100,7 +95,7 @@ class Model(nn.Module):
         outputs = self._forward_decode(images, labels) # [B,T,V]
         return outputs
 
-    def _forward_decode(self, embed_image, embed_text):
+    def _forward_decode(self, embed_image: torch.Tensor, embed_text: torch.Tensor) -> torch.Tensor:
         '''
         Shapes:
         -------
@@ -112,24 +107,28 @@ class Model(nn.Module):
         '''
         pass
 
-    def greedy(self, images, start, max_length):
+    def greedy(self, images: torch.Tensor) -> torch.Tensor:
         '''
         Shapes:
         -------
             - images: [B,C,H,W]
-            - start: [B]
-            - max_length: int
         Returns:
             - outputs: [B,T]
         '''
         pass
 
+    def beamsearch(self, images: torch.Tensor, beam_width: int) -> torch.Tensor:
+        pass
+
 class ModelTF(Model):
     def __init__(self, cnn, vocab, config):
         super().__init__(cnn, vocab)
+        self.register_buffer('start_index', torch.tensor(vocab.SOS_IDX, dtype=torch.long))
+        self.max_length = config['max_length']
+
         self.Ic = nn.Linear(cnn.n_features, config['attn_size'])
-        self.Vc = nn.Linear(self.vocab.size, config['attn_size'])
-        self.character_distribution = nn.Linear(config['attn_size'], self.vocab.size)
+        self.Vc = nn.Linear(vocab.size, config['attn_size'])
+        self.character_distribution = nn.Linear(config['attn_size'], vocab.size)
 
         decoder_layer = nn.TransformerDecoderLayer(config['attn_size'], config['nhead'],
                                                     dim_feedforward=config['dim_feedforward'],
@@ -202,13 +201,11 @@ class ModelTF(Model):
         outputs = self.character_distribution(outputs)
         return outputs
 
-    def greedy(self, images, start, max_length):
+    def greedy(self, images: torch.Tensor) -> torch.Tensor:
         '''
         Shapes:
         -------
             - images: [B,C,H,W]
-            - start: [B]
-            - max_length: int
         Returns:
             - outputs: [B,T]
         '''
@@ -216,10 +213,10 @@ class ModelTF(Model):
         images = self.embed_image(images) # [B,S,E]
         images.transpose_(0, 1) # [S,B,E]
 
-        predicts = start.unsqueeze_(-1)
-        attn_mask = nn.Transformer.generate_square_subsequent_mask(None, max_length).to(predicts.device)
+        predicts = self.start_index.expand(batch_size).unsqueeze(-1)
+        attn_mask = nn.Transformer.generate_square_subsequent_mask(None, self.max_length).to(predicts.device)
         end_flag = torch.zeros(batch_size, dtype=torch.bool)
-        for t in range(max_length):
+        for t in range(self.max_length):
             targets = self.embed_text(predicts) # [B,T,E]
             targets = targets.transpose_(0,1) # [T,B,E]
             output = self.decoder(targets, images, tgt_mask=attn_mask[:t+1, :t+1]) # [T,B,E]
@@ -282,7 +279,7 @@ class ModelTF(Model):
             while True:
                 # give up when decoding takes too long
                 if nodes.qsize() > 2000: break
-                
+
                 # fetch the best node
                 score: float
                 node: _BeamSearchNode
@@ -319,20 +316,6 @@ class ModelTF(Model):
                 node = node.prev_node
                 s.insert(0, node.current_char)
             return torch.tensor(s, dtype=torch.long)
-            
-            # utterances = []
-            # for score, node in sorted(endnodes, key=lambda x: x[0]):
-            #     utterance = []
-            #     utterance.append(node.current_char)
-            #     # back trace
-            #     while node.prev_node is not None:
-            #         node = node.prev_node
-            #         utterance.append(node.current_char)
-
-            #     utterance = utterance[::-1]
-            #     utterances.append(utterance)
-            
-            # return utterances
 
         batch_size = len(images)
         images = self.embed_image(images) # [B,S,E]
@@ -379,6 +362,8 @@ class ModelRNN(Model):
     def __init__(self, cnn, vocab, config):
         super().__init__(cnn, vocab)
         self.hidden_size = config['hidden_size']
+        self.register_buffer('start_index', torch.tensor(vocab.SOS_IDX, dtype=torch.long))
+        self.max_length = config['max_length']
         attn_size = config['attn_size']
 
         self.rnn = nn.LSTMCell(
@@ -434,7 +419,7 @@ class ModelRNN(Model):
 
         return outputs
 
-    def greedy(self, images, start, max_length):
+    def greedy(self, images: torch.Tensor) -> torch.Tensor:
         '''
         Shapes:
         -------
@@ -450,15 +435,15 @@ class ModelRNN(Model):
         batch_size = embedded_image.size(0)
 
         embedded_image = self.Ic(embedded_image)
-        rnn_input = self.embed_text(start.unsqueeze(-1)).squeeze_(1).float() # [B,V]
+        rnn_input = self.start_index.expand(batch_size).float() # [B,V]
 
         hidden = self._init_hidden(batch_size).to(embedded_image.device) # [B, H]
         cell_state = self._init_hidden(batch_size).to(embedded_image.device) # [B, H]
 
-        outputs = torch.zeros(batch_size, max_length, device=embedded_image.device, dtype=torch.long)
+        outputs = torch.zeros(batch_size, self.max_length, device=embedded_image.device, dtype=torch.long)
 
         end_flag = torch.zeros(batch_size, dtype=torch.bool)
-        for t in range(max_length):
+        for t in range(self.max_length):
             attn_hidden = self.Hc(hidden) # [B, A]
             context, _ = self.attention(attn_hidden.unsqueeze(1), embedded_image, embedded_image) # [B, 1, A]
             context.squeeze_(1) #

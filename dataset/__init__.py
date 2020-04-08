@@ -7,41 +7,34 @@ from .rimes import RIMES
 from .vnondb import VNOnDB
 
 
-def _get_dataset_partition_helper(dataset, partition, transform, flatten_type):
+def _get_dataset_partition_helper(dataset, partition, transform, flatten_type, add_blank):
     if dataset in ['vnondb', 'vnondb_line']:
-        if dataset == 'vnondb':
-            train_csv = './data/VNOnDB/word/train_word.csv'
-            test_csv = './data/VNOnDB/word/test_word.csv'
-            validation_csv = './data/VNOnDB/word/validation_word.csv'
-            test_image_folder = './data/VNOnDB/word/test_word'
-            train_image_folder = './data/VNOnDB/word/train_word'
-            validation_image_folder = './data/VNOnDB/word/validation_word'
-        else:
-            train_csv = './data/VNOnDB/line/train_line.csv'
-            test_csv = './data/VNOnDB/line/test_line.csv'
-            validation_csv = './data/VNOnDB/line/validation_line.csv'
-            test_image_folder = './data/VNOnDB/line/test_line'
-            train_image_folder = './data/VNOnDB/line/train_line'
-            validation_image_folder = './data/VNOnDB/line/validation_line'
+        level = 'word' if dataset == 'vnondb' else 'line'
+        train_csv = f'./data/VNOnDB/{level}/train_{level}.csv'
+        test_csv = f'./data/VNOnDB/{level}/test_{level}.csv'
+        validation_csv = f'./data/VNOnDB/{level}/validation_{level}.csv'
+        test_image_folder = f'./data/VNOnDB/{level}/test_{level}'
+        train_image_folder = f'./data/VNOnDB/{level}/train_{level}'
+        validation_image_folder = f'./data/VNOnDB/{level}/validation_{level}'
 
         if partition == 'test':
-            return VNOnDB(test_image_folder, test_csv, train_csv, transform, flatten_type)
+            return VNOnDB(test_image_folder, test_csv, train_csv, transform, flatten_type, add_blank=add_blank)
         if partition == 'train':
-            return VNOnDB(train_image_folder, train_csv, train_csv, transform, flatten_type)
+            return VNOnDB(train_image_folder, train_csv, train_csv, transform, flatten_type, add_blank=add_blank)
         if partition == 'val':
-            return VNOnDB(validation_image_folder, validation_csv, train_csv, transform, flatten_type)
+            return VNOnDB(validation_image_folder, validation_csv, train_csv, transform, flatten_type, add_blank=add_blank)
         if partition == 'trainval':
-            train = VNOnDB(train_image_folder, train_csv, train_csv, transform, flatten_type)
-            val = VNOnDB(validation_image_folder, validation_csv, train_csv, transform, flatten_type)
+            train = VNOnDB(train_image_folder, train_csv, train_csv, transform, flatten_type, add_blank=add_blank)
+            val = VNOnDB(validation_image_folder, validation_csv, train_csv, transform, flatten_type, add_blank=add_blank)
             return ConcatDataset([train, val])
         return None
     elif dataset == 'rimes':
         if partition == 'test':
-            return RIMES('./data/RIMES/data_test', './data/RIMES/grount_truth_test_icdar2011.txt', transform)
+            return RIMES('./data/RIMES/data_test', './data/RIMES/grount_truth_test_icdar2011.txt', transform, add_blank=add_blank)
         if partition == 'train':
-            return RIMES('./data/RIMES/trainingsnippets_icdar/training_WR', './data/RIMES/groundtruth_training_icdar2011.txt', transform)
+            return RIMES('./data/RIMES/trainingsnippets_icdar/training_WR', './data/RIMES/groundtruth_training_icdar2011.txt', transform, add_blank=add_blank)
         if partition == 'val':
-            return RIMES('./data/RIMES/validationsnippets_icdar/testdataset_ICDAR', './data/RIMES/ground_truth_validation_icdar2011.txt', transform)
+            return RIMES('./data/RIMES/validationsnippets_icdar/testdataset_ICDAR', './data/RIMES/ground_truth_validation_icdar2011.txt', transform, add_blank=add_blank)
         return None
     elif dataset == 'iam':
         if partition == 'test':
@@ -57,8 +50,8 @@ def _get_dataset_partition_helper(dataset, partition, transform, flatten_type):
 def collate_fn(batch):
     return CollateWrapper(batch)
 
-def get_data_loader(dataset, partition, batch_size, num_workers=1, transform=None, debug=False, flatten_type:str=None):
-    data = _get_dataset_partition_helper(dataset, partition, transform, flatten_type)
+def get_data_loader(dataset, partition, batch_size, num_workers=1, transform=None, debug=False, flatten_type:str=None, add_blank=False):
+    data = _get_dataset_partition_helper(dataset, partition, transform, flatten_type, add_blank)
     shuffle = partition in ['train', 'trainval']
 
     if debug:

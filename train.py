@@ -16,7 +16,7 @@ from ignite.contrib.handlers import ProgressBar
 from torchvision import transforms
 
 from dataset import get_data_loader, VNOnDB, RIMES
-from model import ModelTF, ModelRNN, ModelTFEncoder, DenseNetFE, SqueezeNetFE, EfficientNetFE, CustomFE, ResnetFE, ResnextFE, DeformResnetFE
+from model
 from utils import ScaleImageByHeight, StringTransform
 from metrics import CharacterErrorRate, WordErrorRate, Running
 from losses import FocalLoss
@@ -60,7 +60,7 @@ def main(args):
 
     config = root_config['common']
 
-    image_transform = transforms.Compose([
+    train_transform = transforms.Compose([
         ImageOps.invert,
         ScaleImageByHeight(config['scale_height']),
         transforms.Grayscale(3),
@@ -74,17 +74,28 @@ def main(args):
                                    'trainval' if args.trainval else 'train',
                                    config['batch_size'],
                                    args.num_workers,
-                                   image_transform,
+                                   train_transform,
                                    args.debug,
-                                   flatten_type=config.get('flatten_type', None))
+                                   flatten_type=config.get('flatten_type', None),
+                                   add_blank=False)
+
+    test_transform = transforms.Compose([
+        ImageOps.invert,
+        ScaleImageByHeight(config['scale_height']),
+        transforms.Grayscale(3),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225]),
+    ])
 
     val_loader = get_data_loader(config['dataset'],
                                  'test' if args.trainval else 'val',
                                  config['batch_size'],
                                  args.num_workers,
-                                 image_transform,
+                                 test_transform,
                                  args.debug,
-                                 flatten_type=config.get('flatten_type', None))
+                                 flatten_type=config.get('flatten_type', None),
+                                 add_blank=False)
 
     if config['dataset'] in ['vnondb', 'vnondb_line']:
         vocab = VNOnDB.vocab
@@ -143,8 +154,14 @@ def main(args):
         exit(0)
 
     model.to(device)
-    criterion = nn.CrossEntropyLoss().to(device)
-    # criterion = FocalLoss(gamma=2, alpha=vocab.class_weight).to(device)
+    loss_type = config.get('loss', 'crossentropy')
+    if loss_type == 'crossentropy':
+        criterion = nn.CrossEntropyLoss()
+    elif loss_type == 'focalloss':
+        criterion = FocalLoss(gamma=2, alpha=vocab.class_weight)
+    else:
+        raise ValueError(f'Unknow loss {loss_type}')
+    criterion = criterion.to(device)
 
     if config['optimizer'] == 'RMSprop':
         optimizer = optim.RMSprop(model.parameters(),
@@ -160,7 +177,7 @@ def main(args):
                               momentum=config['momentum'],
                               weight_decay=config['weight_decay'])
     else:
-        raise ValueError('Unknow optimizer {}'.format(config['optimizer']))
+        raise ValueError(f'Unknow optimizer {config["optimizer"]}')
     lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 'min',
         patience=config['n_epochs_decrease_lr'],
@@ -190,16 +207,16 @@ def main(args):
 
         imgs, targets = batch.images.to(device), batch.labels.to(device)
 
-        outputs = model(imgs, targets[:, :-1])
+        logits = model(imgs, targets[:, :-1])
 
-        outputs = pack_padded_sequence(outputs, (batch.lengths - 1), batch_first=True)[0]
-        targets = pack_padded_sequence(targets[:, 1:], (batch.lengths - 1), batch_first=True)[0]
+        packed_logits = pack_padded_sequence(logits, (batch.lengths - 1), batch_first=True)[0]
+        packed_targets = pack_padded_sequence(targets[:, 1:], (batch.lengths - 1), batch_first=True)[0]
 
-        loss = criterion(outputs, targets)
+        loss = criterion(logits, targets)
         loss.backward()
         optimizer.step()
 
-        return outputs, targets
+        return packed_logits, packed_targets
 
     @torch.no_grad()
     def step_val(engine, batch):

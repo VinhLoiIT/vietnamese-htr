@@ -2,6 +2,7 @@ common:
     dataset: vnondb
     cnn: resnet
     optimizer: adam
+    max_length: 100
     flatten_type:  # flattening_1, flattening_2, or leave blank
     batch_size: 16
     scale_height: 96
@@ -18,12 +19,8 @@ densenet:
 
 resnet:
 
-tf:
-    max_length: 15
-    attn_size: 512
-    nhead: 8
-    dim_feedforward: 2048
-    dropout: 0.1
-    encoder_nlayers: 1
-    decoder_nlayers: 1
-    use_encoder: false
+s2s:
+    hidden_size: 256
+    bidirectional: True
+    num_layers: 1
+    dropout: 0
