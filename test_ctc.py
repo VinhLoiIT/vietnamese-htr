@@ -16,7 +16,7 @@ from ignite.contrib.handlers import ProgressBar
 from torchvision import transforms, models
 
 from dataset import get_data_loader, VNOnDB
-from model import ModelTF, ModelRNN, DenseNetFE, SqueezeNetFE, EfficientNetFE, CustomFE, ResnetFE, ResnextFE
+from model import *
 from utils import ScaleImageByHeight, StringTransform
 from metrics import CharacterErrorRate, WordErrorRate, Running
 from losses import FocalLoss
@@ -34,38 +34,11 @@ torch.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)
 device = f'cuda' if torch.cuda.is_available() else 'cpu'
 
-
-class CTCModel(nn.Module):
-    def __init__(self, vocab):
-        super().__init__()
-
-        resnet = models.resnet18(pretrained=True)
-        self.cnn = nn.Sequential(*list(resnet.children())[:-2])
-        self.pool = nn.AdaptiveAvgPool2d((1, None))
-        encoder_layer = nn.TransformerEncoderLayer(d_model=resnet.fc.in_features, nhead=8)
-        self.encoder = nn.TransformerEncoder(encoder_layer, 6)
-        self.character_distribution = nn.Linear(resnet.fc.in_features, vocab.size)
-
-    def forward(self, images) -> torch.Tensor:
-        '''
-        Shapes:
-        -------
-            images: (N,C,H,W)
-        '''
-        images = self.cnn(images) # [B,C,H',W']
-        images = self.pool(images) # [B,C,1,W']
-        images.squeeze_(-2) # [B,C,W']
-        images = images.permute(2,0,1) # [S=W',B,C]
-        images = self.encoder(images) # [S,B,C]
-        images = images.transpose(0,1) # [B,S,C]
-        images = self.character_distribution(images) # [B,S,V]
-        return images
-
 class CTCStringTransform(object):
     def __init__(self, vocab, batch_first=True):
         self.batch_first = batch_first
-        self.EOS_int = vocab.char2int(vocab.EOS)
-        self.vocab = vocab
+        self.blank = vocab.BLANK_IDX
+        self.int2char = vocab.int2char
 
     def __call__(self, tensor: torch.tensor):
         '''
@@ -80,9 +53,9 @@ class CTCStringTransform(object):
             # remove duplicates
             sample = [sample[0]] + [c for i,c in enumerate(sample[1:]) if c != sample[i]]
             # remove 'blank'
-            sample = list(filter(lambda i: i != 0, sample))
+            sample = list(filter(lambda i: i != self.blank, sample))
             # fix index
-            sample = list(map(self.vocab.int2char, np.array(sample) - 1))
+            sample = list(map(self.int2char, sample))
             strs.append(sample)
         return strs
 
@@ -120,7 +93,8 @@ def main(args):
                              args.num_workers,
                              image_transform,
                              False,
-                             flatten_type=config.get('flatten_type', None))
+                             flatten_type=config.get('flatten_type', None),
+                             add_blank=True) # CTC need add_blank
 
     if config['dataset'] in ['vnondb', 'vnondb_line']:
         vocab = VNOnDB.vocab
@@ -143,7 +117,15 @@ def main(args):
     else:
         raise ValueError('Unknow CNN {}'.format(config['cnn']))
 
-    model = CTCModel(vocab)
+    if args.model == 'tf':
+        model_config = root_config['tf']
+        model = CTCModelTFEncoder(cnn, vocab, model_config)
+    elif args.model == 's2s':
+        model_config = root_config['s2s']
+        model = CTCModelRNN(cnn, vocab, model_config)
+    else:
+        raise ValueError('model should be "tf" or "s2s"')
+
     model.to(device)
     model.load_state_dict(checkpoint['model'])
     model.eval()
@@ -153,19 +135,13 @@ def main(args):
     @torch.no_grad()
     def step_val(engine, batch):
         imgs, targets = batch.images.to(device), batch.labels.to(device)
-        targets = targets + 1 # Leave index 0 for '<blank>'
-
         outputs = model(imgs) # [B,S,V]
-        outputs = F.log_softmax(outputs, -1) # [B,S,V]
         outputs_lengths = torch.tensor(outputs.size(1)).expand(outputs.size(0))
         return outputs.argmax(-1), batch.labels[:, 1:] # ignore <start>
 
     evaluator = Engine(step_val)
-    Running(CharacterErrorRate(output_transform=OutputTransform(vocab, True))).attach(evaluator, 'CER')
-    if config['dataset'] == 'vnondb_line':
-        Running(WordErrorRate(logfile='wer.txt', level='line', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
-    else:
-        Running(WordErrorRate(logfile='word.txt', level='word', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
+    Running(CharacterErrorRate(logfile='cer_ctc.txt', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'CER')
+    Running(WordErrorRate(logfile='wer_ctc.txt', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
 
     eval_pbar = ProgressBar(ncols=0, ascii=True, position=0)
     eval_pbar.attach(evaluator, 'all')
@@ -184,6 +160,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser()
+    parser.add_argument('model', type=str, choices=['tf', 's2s'])
     parser.add_argument('weight', type=str)
     parser.add_argument('--multi-gpus', action='store_true', default=False)
     parser.add_argument('--num-workers', type=int, default=2)

@@ -118,10 +118,7 @@ def main(args):
 
     evaluator = Engine(step_val)
     Running(CharacterErrorRate(output_transform=OutputTransform(vocab, True))).attach(evaluator, 'CER')
-    if config['dataset'] == 'vnondb_line':
-        Running(WordErrorRate(logfile='wer.txt', level='line', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
-    else:
-        Running(WordErrorRate(logfile='word.txt', level='word', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
+    Running(WordErrorRate(logfile='word.txt', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
 
     eval_pbar = ProgressBar(ncols=0, ascii=True, position=0)
     eval_pbar.attach(evaluator, 'all')

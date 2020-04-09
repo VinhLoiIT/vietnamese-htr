@@ -249,10 +249,7 @@ def main(args):
     evaluator = Engine(step_val)
     Running(Loss(criterion)).attach(evaluator, 'Loss')
     Running(CharacterErrorRate(output_transform=OutputTransform(vocab, False))).attach(evaluator, 'CER')
-    if config['dataset'] == 'vnondb_line':
-        Running(WordErrorRate(level='line', output_transform=OutputTransform(vocab, False))).attach(evaluator, 'WER')
-    else:
-        Running(WordErrorRate(level='word', output_transform=OutputTransform(vocab, False))).attach(evaluator, 'WER')
+    Running(WordErrorRate(output_transform=OutputTransform(vocab, False))).attach(evaluator, 'WER')
     
 
     ProgressBar(ncols=0, ascii=True, position=0).attach(evaluator, 'all')
