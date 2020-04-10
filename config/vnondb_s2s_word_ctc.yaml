@@ -22,5 +22,5 @@ resnet:
 s2s:
     hidden_size: 256
     bidirectional: True
-    num_layers: 1
-    dropout: 0
+    num_layers: 4
+    dropout: 0.1

@@ -141,7 +141,7 @@ def main(args):
     elif config['cnn'] == 'custom':
         cnn = CustomFE(3)
     elif config['cnn'] == 'resnet':
-        cnn = ResnetFE('resnet18')
+        cnn = ResnetFE('resnet50')
     elif config['cnn'] == 'resnext':
         cnn = ResnextFE('resnext50')
     elif config['cnn'] == 'deformresnet':
@@ -164,7 +164,7 @@ def main(args):
         model = nn.DataParallel(model, dim=0) # batch dim = 0
 
     model.to(device)
-    criterion = nn.CTCLoss(blank=vocab.BLANK_IDX, zero_infinity=True)
+    criterion = nn.CTCLoss(blank=vocab.BLANK_IDX, zero_infinity=False)
 
     if config['optimizer'] == 'RMSprop':
         optimizer = optim.RMSprop(model.parameters(),

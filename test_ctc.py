@@ -81,7 +81,6 @@ def main(args):
         ImageOps.invert,
         ScaleImageByHeight(config['scale_height']),
         transforms.Grayscale(3),
-        transforms.RandomRotation(10),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225]),
@@ -111,7 +110,7 @@ def main(args):
     elif config['cnn'] == 'custom':
         cnn = CustomFE(3)
     elif config['cnn'] == 'resnet':
-        cnn = ResnetFE('resnet18')
+        cnn = ResnetFE('resnet50')
     elif config['cnn'] == 'resnext':
         cnn = ResnextFE('resnext50')
     else:
@@ -136,7 +135,7 @@ def main(args):
     def step_val(engine, batch):
         imgs, targets = batch.images.to(device), batch.labels.to(device)
         outputs = model(imgs) # [B,S,V]
-        outputs_lengths = torch.tensor(outputs.size(1)).expand(outputs.size(0))
+        outputs = F.log_softmax(outputs, -1)
         return outputs.argmax(-1), batch.labels[:, 1:] # ignore <start>
 
     evaluator = Engine(step_val)

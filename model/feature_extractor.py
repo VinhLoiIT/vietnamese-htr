@@ -167,9 +167,9 @@ class ResnetFE(FE):
     def __init__(self, version='resnet50'):
         super().__init__()
         resnet = ResnetFE.version[version](pretrained=True)
-        self.n_features = resnet.fc.in_features
-        self.cnn = nn.Sequential(*list(resnet.children())[:-2])
-        self.pool = nn.AdaptiveAvgPool2d((1, None))
+        # self.n_features = resnet.fc.in_features
+        self.n_features = 512
+        self.cnn = nn.Sequential(*list(resnet.children())[:-4])
 
     def get_cnn(self):
         return self.cnn
@@ -179,7 +179,6 @@ class ResnetFE(FE):
 
     def forward(self, x):
         x = self.cnn(x)
-        x = self.pool(x)
         return x
 
 class ResnextFE(FE):

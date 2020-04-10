@@ -3,7 +3,7 @@ common:
     cnn: resnet
     optimizer: adam
     flatten_type:  # flattening_1, flattening_2, or leave blank
-    batch_size: 4
+    batch_size: 8
     scale_height: 96
     max_length: 160
     use_handcraft: False
@@ -12,7 +12,7 @@ common:
     start_learning_rate: 1.0e-5
     end_learning_rate: 1.0e-11
     max_epochs: 100
-    weight_decay: 0
+    weight_decay: 0.1
     momentum: 0.9
 
 resnet:

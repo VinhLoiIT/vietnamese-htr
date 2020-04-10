@@ -50,7 +50,7 @@ class EditDistance(Metric):
         for i, (predict, target) in enumerate(zip(y_pred, y)):
             distance = self.compute_distance(predict, target)
             if self.log is not None:
-                self.log.write(f'{predict} | {target} = {distance}\n')
+                self.log.write(f'{"".join(predict)}|{"".join(target)}|{distance}\n')
             self._ed += distance
 
         self._num_examples += batch_size

@@ -1,27 +1,27 @@
 common:
-    dataset: vnondb
+    dataset: vnondb_line
     cnn: resnet
     optimizer: adam
-    max_length: 100
     flatten_type:  # flattening_1, flattening_2, or leave blank
-    batch_size: 16
+    batch_size: 4
     scale_height: 96
     use_handcraft: False
 
     n_epochs_decrease_lr: 5
     start_learning_rate: 1.0e-5
     end_learning_rate: 1.0e-11
-    max_epochs: 50
+    max_epochs: 100
     weight_decay: 0
     momentum: 0.9
-
-densenet:
 
 resnet:
 
 tf:
-    attn_size: 256
+    max_length: 170
+    attn_size: 512
     nhead: 8
-    dim_feedforward: 1024
+    dim_feedforward: 2048
     dropout: 0.1
     num_layers: 1
+    # use_pe_text: True
+    # use_pe_image: True
