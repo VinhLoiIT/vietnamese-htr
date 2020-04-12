@@ -3,7 +3,7 @@ from torch.utils.data import ConcatDataset, DataLoader, Subset
 from .vocab import CollateWrapper
 
 from .iam import IAM
-from .rimes import RIMES
+from .rimes import RIMES, RIMESLine
 from .vnondb import VNOnDB
 
 
@@ -36,6 +36,13 @@ def _get_dataset_partition_helper(dataset, partition, transform, flatten_type, a
         if partition == 'val':
             return RIMES('./data/RIMES/validationsnippets_icdar/testdataset_ICDAR', './data/RIMES/ground_truth_validation_icdar2011.txt', transform, add_blank=add_blank)
         return None
+    elif dataset == 'rimes_line':
+        image_dir = './data/RIMES_Line'
+        if partition == 'trainval':
+            raise NotImplementedError()
+        else:
+            csv_file = f'./data/RIMES_Line/{partition}.csv'
+        return RIMESLine(image_dir, csv_file, transform, add_blank=add_blank)
     elif dataset == 'iam':
         if partition == 'test':
             return IAM('./data/IAM/splits/test.uttlist', transform)

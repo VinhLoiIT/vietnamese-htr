@@ -41,17 +41,57 @@ class RIMES(Dataset):
 
     def __len__(self):
         return len(self.image_paths)
-    
+
     def __getitem__(self, idx):
         image_path = self.image_paths[idx]
         image = Image.open(image_path).convert('L')
-        
+
         if self.image_transform:
             image = self.image_transform(image)
-        
+
         label = [self.vocab.SOS] + list(self.labels[idx]) + [self.vocab.EOS]
         label = torch.tensor(list(map(self.vocab.char2int, label)))
-            
+
+        return image, label
+
+
+class RIMESLineVocab(Vocab):
+    def __init__(self, add_blank: bool):
+        super().__init__(add_blank)
+
+    def load_labels(self) -> pd.Series:
+        '''
+        Load labels from train partition
+        '''
+        train_df = pd.read_csv('data/RIMES_Line/train.csv', sep='\t')
+        return train_df['label'].astype(str)
+
+
+class RIMESLine(Dataset):
+    vocab = None
+    def __init__(self, root_folder, csv, image_transform=None, add_blank: bool=False):
+        if RIMESLine.vocab is None:
+            RIMESLine.vocab = RIMESLineVocab(add_blank)
+
+        self.image_transform = image_transform
+
+        self.df = pd.read_csv(csv, sep='\t', keep_default_na=False)
+        self.df['filename'] = self.df['filename'].apply(lambda path: os.path.join(root_folder, path))
+        self.df['label'] = self.df['label'].apply(RIMESLine.vocab.process_label).apply(RIMESLine.vocab.add_signals)
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        image_path, label, bottom, top, right, left = self.df.iloc[idx]
+        image = Image.open(image_path).convert('L')
+        image = image.crop((left, top, right, bottom))
+
+        if self.image_transform:
+            image = self.image_transform(image)
+
+        label = torch.tensor(list(map(RIMESLine.vocab.char2int, label)))
+
         return image, label
 
 
