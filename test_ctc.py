@@ -3,6 +3,7 @@ import os
 import datetime
 
 import torch
+from torch.utils import data
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -17,7 +18,7 @@ from torchvision import transforms, models
 
 from dataset import get_data_loader, VNOnDB
 from model import *
-from utils import ScaleImageByHeight, StringTransform
+from utils import ScaleImageByHeight, StringTransform, Spell
 from metrics import CharacterErrorRate, WordErrorRate, Running
 from losses import FocalLoss
 
@@ -59,13 +60,37 @@ class CTCStringTransform(object):
             strs.append(sample)
         return strs
 
-class OutputTransform(object):
-    def __init__(self, vocab, batch_first=True):
+class OutputTransform(object): # Not use language model here!!! CTCStringTransform only used for bestpath
+    def __init__(self, vocab, batch_first=True, lm=False):
         self.label_tf = StringTransform(vocab, batch_first)
         self.output_tf = CTCStringTransform(vocab, batch_first)
+        self.lm = lm
+        if self.lm:
+            corpus_words = {}
+            with open('data/corpus/corpus_words.txt') as f:
+                data = f.readlines()
+                for line in data:
+                    word, count = line.split(': ')
+                    corpus_words[word] = int(count)
+
+            corpus_biwords = {}
+            with open('data/corpus/corpus_biwords.txt') as f:
+                data = f.readlines()
+                for line in data:
+                    biword, count = line.split(': ')
+                    corpus_biwords[biword] = int(count)
+            self.spell = Spell(corpus_words=corpus_words, corpus_biwords=corpus_biwords)
 
     def __call__(self, output):
-        return self.output_tf(output[0]), self.label_tf(output[1])
+        if args.beamsearch:
+            predict = self.label_tf(output[0])
+        else:
+            predict = self.output_tf(output[0])
+        if self.lm:
+            # predict = self.spell.correction_words(predict)
+            predict = self.spell.correction_lines(predict)
+        target = self.label_tf(output[1])
+        return predict, target
 
 def main(args):
     logger = logging.getLogger('Testing')
@@ -99,6 +124,7 @@ def main(args):
         vocab = VNOnDB.vocab
 
     logger.info('Vocab size = {}'.format(vocab.size))
+    logger.info('Vocab = {}'.format(vocab.alphabets))
 
     if config['cnn'] == 'densenet':
         cnn_config = root_config['densenet']
@@ -124,30 +150,37 @@ def main(args):
         model = CTCModelRNN(cnn, vocab, model_config)
     else:
         raise ValueError('model should be "tf" or "s2s"')
+        
+    multi_gpus = torch.cuda.device_count() > 1 and args.multi_gpus
+    if multi_gpus:
+        logger.info("Let's use %d GPUs!", torch.cuda.device_count())
+        model = nn.DataParallel(model, dim=0) # batch dim = 0
 
     model.to(device)
     model.load_state_dict(checkpoint['model'])
     model.eval()
-    # beamsearch = model.module.beamsearch if multi_gpus else model.beamsearch
-    # greedy = model.module.greedy if multi_gpus else model.greedy
+    
+    if args.beamsearch:
+        inference = model.module.beamsearch if multi_gpus else model.beamsearch
+    else:
+        inference = model.module.greedy if multi_gpus else model.greedy
 
     @torch.no_grad()
     def step_val(engine, batch):
         imgs, targets = batch.images.to(device), batch.labels.to(device)
-        outputs = model(imgs) # [B,S,V]
-        outputs = F.log_softmax(outputs, -1)
-        return outputs.argmax(-1), batch.labels[:, 1:] # ignore <start>
+        outputs = inference(imgs)
+        return outputs, targets[:, 1:]
 
     evaluator = Engine(step_val)
-    Running(CharacterErrorRate(logfile='cer_ctc.txt', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'CER')
-    Running(WordErrorRate(logfile='wer_ctc.txt', output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
+    Running(CharacterErrorRate(logfile='cer_ctc.txt', output_transform=OutputTransform(vocab, True, args.lm))).attach(evaluator, 'CER')
+    Running(WordErrorRate(logfile='wer_ctc.txt', output_transform=OutputTransform(vocab, True, args.lm))).attach(evaluator, 'WER')
 
     eval_pbar = ProgressBar(ncols=0, ascii=True, position=0)
     eval_pbar.attach(evaluator, 'all')
     evaluator.logger = setup_logger('Evaluator')
 
     logger.info('='*60)
-    logger.info(model)
+#     logger.info(model)
     logger.info('='*60)
     logger.info(root_config)
     logger.info('='*60)
@@ -164,6 +197,8 @@ if __name__ == '__main__':
     parser.add_argument('--multi-gpus', action='store_true', default=False)
     parser.add_argument('--num-workers', type=int, default=2)
     parser.add_argument('--log-interval', type=int, default=50)
+    parser.add_argument('--beamsearch', action='store_true', default=False)
+    parser.add_argument('--lm', action='store_true', default=False)
     args = parser.parse_args()
 
     main(args)

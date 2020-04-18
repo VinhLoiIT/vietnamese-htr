@@ -39,6 +39,93 @@ class _BeamSearchNode(object):
             self.length + 1,
         )
         return new_node
+    
+class BeamEntry:
+    "information about one single beam at specific time-step"
+    def __init__(self):
+        self.p_total = 0 # blank + non-blank
+        self.p_nonblank = 0 # non-blank
+        self.p_blank = 0 # blank
+        self.labeling = () # beam-labeling
+
+class BeamState:
+    "information about the beams at specific time-step"
+    def __init__(self):
+        self.entries = {}
+        
+    def sort(self):
+        "return beam-labelings, sorted by probability"
+        beams = [v for (_, v) in self.entries.items()]
+        sorted_beams = sorted(beams, reverse=True, key=lambda x: x.p_total)
+        return [x.labeling for x in sorted_beams]
+        
+def beamsearch_ctc(output_ctc, beam_width=3):
+    max_len, vocab_size = output_ctc.shape
+    blank_idx = vocab_size - 1
+
+    # initialise beam state
+    last = BeamState()
+    labeling = ()
+    last.entries[labeling] = BeamEntry()
+    last.entries[labeling].p_blank = 1
+    last.entries[labeling].p_total = 1
+
+    # go over all time-steps
+    for t in range(max_len):
+        curr = BeamState()
+
+        # get beam-labelings of best beams
+        prev_tops = last.sort()[0:beam_width]
+
+        # go over best beams
+        for token in prev_tops:
+
+            # probability of paths ending with a non-blank
+            p_nonblank = 0
+            # in case of non-empty beam
+            if token:
+                # probability of paths with repeated last char at the end
+                p_nonblank = last.entries[token].p_nonblank * output_ctc[t, token[-1]]
+
+            # probability of paths ending with a blank
+            p_blank = (last.entries[token].p_total) * output_ctc[t, blank_idx]
+
+            # add beam at current time-step if needed
+            if token not in curr.entries:
+                curr.entries[token] = BeamEntry()
+
+            # fill in data
+            curr.entries[token].labeling = token
+            curr.entries[token].p_nonblank += p_nonblank
+            curr.entries[token].p_blank += p_blank
+            curr.entries[token].p_total += p_blank + p_nonblank
+
+            # extend current beam-labeling
+            for c in range(vocab_size-1):
+                # add new char to current beam-labeling
+                extend_token = token + (c,)
+
+                # if new labeling contains duplicate char at the end, only consider paths ending with a blank
+                if token and token[-1] == c:
+                    p_nonblank = output_ctc[t, c] * last.entries[token].p_blank
+                else:
+                    p_nonblank = output_ctc[t, c] * last.entries[token].p_total
+
+                # add beam at current time-step if needed
+                if extend_token not in curr.entries:
+                    curr.entries[extend_token] = BeamEntry()
+                
+                # fill in data
+                curr.entries[extend_token].labeling = extend_token
+                curr.entries[extend_token].p_nonblank += p_nonblank
+                curr.entries[extend_token].p_total += p_nonblank
+
+        # set new beam state
+        last = curr
+
+     # sort by probability
+    result = last.sort()[0] # get most probable labeling
+    return list(result)
 
 class CTCModel(nn.Module):
     '''
@@ -87,8 +174,27 @@ class CTCModel(nn.Module):
         Returns:
             - outputs: [B,S]
         '''
-        images = self(images) # [B,S,V]
-        return images.argmax(-1) # [B,S]
+        outputs = self(images) # [B,S,V]
+        outputs = F.softmax(outputs, -1)
+        return outputs.argmax(-1) # [B,S]
+    
+    def beamsearch(self, images: torch.Tensor) -> torch.Tensor:
+        '''
+        Shapes:
+        -------
+            - images: [B,C,H,W]
+        Returns:
+            - outputs: [B,S]
+        '''
+        outputs = self(images) # [B,S,V]
+        outputs = F.softmax(outputs, -1)
+        results = []
+        for output in outputs:
+            result = beamsearch_ctc(output)
+            result = [i for i in result]
+            result += [self.vocab.char2int(self.vocab.EOS)]
+            results.append(torch.tensor(result))
+        return torch.nn.utils.rnn.pad_sequence(results, batch_first=True)
 
 class CTCModelTFEncoder(CTCModel):
     def __init__(self, cnn, vocab, config):
