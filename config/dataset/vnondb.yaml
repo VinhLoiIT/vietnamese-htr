@@ -1,0 +1,17 @@
+dataset:
+  name: vnondb
+  args:
+    flatten_type:  # flattening_1, flattening_2, or leave blank
+    train_csv: data/VNOnDB/word/train_word.csv
+
+  train:
+    csv: data/VNOnDB/word/train_word.csv
+    image_folder: data/VNOnDB/word/train_word
+
+  validation:
+    csv: data/VNOnDB/word/validation_word.csv
+    image_folder: data/VNOnDB/word/validation_word
+
+  test:
+    csv: data/VNOnDB/word/test_word.csv
+    image_folder: data/VNOnDB/word/test_word

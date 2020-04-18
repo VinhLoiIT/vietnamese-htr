@@ -1,4 +1,5 @@
 common:
+    model: ctc_tf_full
     dataset: vnondb_line
     cnn: resnet
     optimizer: adam
@@ -14,14 +15,14 @@ common:
     weight_decay: 0
     momentum: 0.9
 
-resnet:
-
-tf:
+ctc_tf_full:
+    scale_height: 96
     max_length: 170
     attn_size: 512
     nhead: 8
     dim_feedforward: 2048
     dropout: 0.1
-    num_layers: 1
+    encoder_nlayers: 1
+    decoder_nlayers: 1
     # use_pe_text: True
     # use_pe_image: True

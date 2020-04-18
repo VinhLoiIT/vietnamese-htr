@@ -1,0 +1,4 @@
+cnn:
+  name: efficientnet
+  args:
+    pretrained_name: efficientnet-b0

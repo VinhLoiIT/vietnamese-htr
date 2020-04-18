@@ -1,0 +1,4 @@
+cnn:
+  name: resnext
+  args:
+    version: resnext50

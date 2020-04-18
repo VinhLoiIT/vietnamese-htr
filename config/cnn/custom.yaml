@@ -1,0 +1,4 @@
+cnn:
+  name: custom
+  args:
+    in_channels: 3

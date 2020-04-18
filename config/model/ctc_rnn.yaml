@@ -1,0 +1,9 @@
+model:
+  name: ctc_rnn
+  args:
+    num_layers: 1
+    bidirectional: true
+    hidden_size: 256
+    dropout: 0.1
+    pool_type: adaptive_avg_pool
+    # scale_height: 96

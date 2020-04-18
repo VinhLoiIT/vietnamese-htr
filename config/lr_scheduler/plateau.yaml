@@ -1,0 +1,7 @@
+lr_scheduler:
+  name: plateau
+  args:
+    mode: min
+    patience: 5
+    min_lr: 1.0e-11
+    verbose: True

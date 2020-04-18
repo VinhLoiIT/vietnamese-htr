@@ -1,0 +1,9 @@
+defaults:
+    dataset: vnondb
+    cnn: resnet
+    model: tf
+    optimizer: adam
+    lr_scheduler: plateau
+    batch_size: 16
+    scale_height: 96
+    max_epochs: 50

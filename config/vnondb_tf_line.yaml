@@ -3,27 +3,28 @@ common:
     cnn: resnet
     optimizer: adam
     flatten_type:  # flattening_1, flattening_2, or leave blank
-    batch_size: 8
+    batch_size: 4
     scale_height: 96
-    max_length: 160
     use_handcraft: False
-
     n_epochs_decrease_lr: 5
-    start_learning_rate: 1.0e-5
+    start_learning_rate: 1.0e-7
     end_learning_rate: 1.0e-11
     max_epochs: 100
-    weight_decay: 0.1
+    weight_decay: 0
     momentum: 0.9
 
 resnet:
+    version: resnet50
 
 tf:
+    scale_height: 96
+    max_length: 160
     attn_size: 512
     nhead: 8
     dim_feedforward: 2048
     dropout: 0.1
-    encoder_nlayers: 6
+    encoder_nlayers: 1
     decoder_nlayers: 6
-    use_encoder: True
-    use_pe_text: True
-    use_pe_image: True
+    use_encoder: False
+    use_pe_text: False
+    use_pe_image: False
