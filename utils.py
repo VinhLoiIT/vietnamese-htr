@@ -14,6 +14,15 @@ import heapq
 import itertools
 import tqdm
 from nltk.util import ngrams, bigrams
+import collections
+
+def update_dict(d, u):
+    for k, v in u.items():
+        if isinstance(v, collections.abc.Mapping):
+            d[k] = update_dict(d.get(k, {}), v)
+        else:
+            d[k] = v
+    return d
 
 class ScaleImageByHeight(object):
     def __init__(self, target_height):
@@ -273,3 +282,27 @@ class Spell():
             score *= self.lm_letter[c1, c2][c3]
         score = score**(1/float(len(word)+2))
         return score
+
+class CTCStringTransform(object):
+    def __init__(self, vocab, batch_first=True):
+        self.batch_first = batch_first
+        self.vocab = vocab
+
+    def __call__(self, tensor: torch.tensor):
+        '''
+        Convert a Tensor to a list of Strings
+        '''
+        if not self.batch_first:
+            tensor = tensor.transpose(0,1)
+        # tensor: [B,T]
+        strs = []
+        for sample in tensor.tolist():
+            # sample: [T]
+            # remove duplicates
+            sample = [sample[0]] + [c for i,c in enumerate(sample[1:]) if c != sample[i]]
+            # remove 'blank'
+            sample = list(filter(lambda i: i != self.vocab.BLANK_IDX, sample))
+            # convert to characters
+            sample = list(map(self.vocab.int2char, sample))
+            strs.append(sample)
+        return strs

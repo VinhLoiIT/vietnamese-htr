@@ -16,7 +16,7 @@ from ignite.contrib.handlers import ProgressBar
 from torchvision import transforms
 
 from dataset import get_data_loader, VNOnDB, RIMES
-from model
+from model import *
 from utils import ScaleImageByHeight, StringTransform
 from metrics import CharacterErrorRate, WordErrorRate, Running
 from losses import FocalLoss
@@ -55,7 +55,20 @@ def main(args):
         checkpoint = torch.load(args.resume, map_location=device)
         root_config = checkpoint['config']
     else:
-        root_config = load_config(args.config_path)
+        logger.info('Load base config..')
+        import collections.abc
+
+        def update(d, u):
+            for k, v in u.items():
+                if isinstance(v, collections.abc.Mapping):
+                    d[k] = update(d.get(k, {}), v)
+                else:
+                    d[k] = v
+            return d
+
+        root_config = load_config('config/base.yaml')
+        override_config = load_config(args.config_path)
+        update(root_config, override_config)
     best_metrics = dict()
 
     config = root_config['common']
@@ -104,19 +117,19 @@ def main(args):
 
     logger.info('Vocab size = {}'.format(vocab.size))
 
+    cnn_config = root_config[config['cnn']] or {}
     if config['cnn'] == 'densenet':
-        cnn_config = root_config['densenet']
-        cnn = DenseNetFE('densenet161', True)
+        cnn = DenseNetFE(**cnn_config)
     elif config['cnn'] == 'squeezenet':
-        cnn = SqueezeNetFE()
+        cnn = SqueezeNetFE(**cnn_config)
     elif config['cnn'] == 'efficientnet':
-        cnn = EfficientNetFE('efficientnet-b1')
+        cnn = EfficientNetFE(**cnn_config)
     elif config['cnn'] == 'custom':
         cnn = CustomFE(3)
     elif config['cnn'] == 'resnet':
-        cnn = ResnetFE('resnet18')
+        cnn = ResnetFE(**cnn_config)
     elif config['cnn'] == 'resnext':
-        cnn = ResnextFE('resnext50')
+        cnn = ResnextFE(**cnn_config)
     elif config['cnn'] == 'deformresnet':
         cnn = DeformResnetFE('resnet18')
     else:
@@ -190,7 +203,7 @@ def main(args):
         lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
 
     log_dir = datetime.datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
-    log_dir += '_' + args.model
+    log_dir += f"_{config['dataset']}_{args.model}_ce"
     if args.comment:
         log_dir += '_' + args.comment
     if args.debug:
@@ -212,7 +225,7 @@ def main(args):
         packed_logits = pack_padded_sequence(logits, (batch.lengths - 1), batch_first=True)[0]
         packed_targets = pack_padded_sequence(targets[:, 1:], (batch.lengths - 1), batch_first=True)[0]
 
-        loss = criterion(logits, targets)
+        loss = criterion(packed_logits, packed_targets)
         loss.backward()
         optimizer.step()
 
@@ -225,9 +238,9 @@ def main(args):
         imgs, targets = batch.images.to(device), batch.labels.to(device)
         logits = model(imgs, targets[:, :-1])
         if multi_gpus:
-            outputs = model.module.greedy(imgs, targets[:, 0], config['max_length'])
+            outputs = model.module.greedy(imgs)
         else:
-            outputs = model.greedy(imgs, targets[:, 0], config['max_length'])
+            outputs = model.greedy(imgs)
 
         logits = pack_padded_sequence(logits, (batch.lengths - 1), batch_first=True)[0]
         packed_targets = pack_padded_sequence(targets[:, 1:], (batch.lengths - 1), batch_first=True)[0]
@@ -236,15 +249,12 @@ def main(args):
 
     trainer = Engine(step_train)
     Running(Loss(criterion), reset_interval=args.log_interval).attach(trainer, 'Loss')
-    Running(Accuracy(), reset_interval=args.log_interval).attach(trainer, 'Accuracy')
 
-    train_pbar = ProgressBar(ncols=0, ascii=True, position=0)
-    train_pbar.attach(trainer, 'all')
+    ProgressBar(ncols=0, ascii=True, position=0).attach(trainer, 'all')
     trainer.logger = setup_logger('Trainer')
     tb_logger.attach(trainer,
                      event_name=Events.ITERATION_COMPLETED,
-                     log_handler=OutputHandler(tag='Train',
-                                               metric_names=['Loss', 'Accuracy']))
+                     log_handler=OutputHandler(tag='Train', metric_names='all'))
 
     evaluator = Engine(step_val)
     Running(Loss(criterion, output_transform=lambda output: output[:2])).attach(evaluator, 'Loss')
@@ -252,24 +262,23 @@ def main(args):
     Running(WordErrorRate(output_transform=OutputTransform(vocab, True))).attach(evaluator, 'WER')
     
 
-    eval_pbar = ProgressBar(ncols=0, ascii=True, position=0)
-    eval_pbar.attach(evaluator, 'all')
+    ProgressBar(ncols=0, ascii=True, position=0).attach(evaluator, 'all')
     evaluator.logger = setup_logger('Evaluator')
     tb_logger.attach(evaluator,
                      log_handler=OutputHandler(tag='Validation',
-                                               metric_names=['Loss', 'CER', 'WER'],
+                                               metric_names='all',
                                                global_step_transform=global_step_from_engine(trainer)),
                                                event_name=Events.EPOCH_COMPLETED)
 
     @trainer.on(Events.EPOCH_COMPLETED)
     def validate(engine):
         state = evaluator.run(val_loader)
-        lr_scheduler.step(state.metrics['Loss'])
+        lr_scheduler.step(state.metrics['CER'])
 
     @evaluator.on(Events.EPOCH_COMPLETED)
     def save_checkpoint(engine: Engine):
-        is_better = lr_scheduler.is_better(engine.state.metrics['Loss'], lr_scheduler.best)
-        lr_scheduler.step(engine.state.metrics['Loss'])
+        is_better = lr_scheduler.is_better(engine.state.metrics['CER'], lr_scheduler.best)
+        lr_scheduler.step(engine.state.metrics['CER'])
         to_save = {
             'config': root_config,
             'model': model.state_dict() if not multi_gpus else model.module.state_dict(),
@@ -278,7 +287,7 @@ def main(args):
             'trainer': trainer.state_dict(),
         }
 
-        torch.save(to_save, os.path.join(CKPT_DIR, f'weights_epoch={trainer.state.epoch}_loss={engine.state.metrics["Loss"]:.3f}.pt'))
+        torch.save(to_save, os.path.join(CKPT_DIR, f'weights.pt'))
         if is_better:
             torch.save(to_save, os.path.join(CKPT_DIR, 'BEST.pt'))
             best_metrics.update(engine.state.metrics)

@@ -7,7 +7,7 @@ from typing import List, Dict, Tuple
 from .positional_encoding import PositionalEncoding1d, PositionalEncoding2d
 
 __all__ = [
-    'CTCModel', 'CTCModelTFEncoder', 'CTCModelRNN',
+    'CTCModel', 'CTCModelTFEncoder', 'CTCModelRNN', 'CTCModelTF'
 ]
 
 class _BeamSearchNode(object):
@@ -132,11 +132,39 @@ class CTCModel(nn.Module):
     Base class for all model use CTC as loss function. This loss expects model return a sequence from
     image so that it can alignment between sequence from image, e.g. (N,S) and sequence from groundtruth, e.g. (N,T)
     '''
-    def __init__(self, cnn, vocab, config: Dict):
+    def __init__(self, cnn, vocab, **config):
         super().__init__()
         self.cnn = cnn
-        self.pool = nn.AdaptiveAvgPool2d((1, None))
+        pool_type = config.get('pool_type', 'adaptive_avg_pool')
+        if pool_type == 'adaptive_avg_pool':
+            self.pool = nn.AdaptiveAvgPool2d((None, 1))
+        elif pool_type == 'adaptive_max_pool':
+            self.pool = nn.AdaptiveMaxPool2d((None, 1))
+        elif pool_type in ['linear', 'concat']:
+            rand_tensor = torch.rand(1,3,config['scale_height'],config['scale_height']*2)
+            rand_tensor = self.cnn(rand_tensor) # [B,C,H',W']
+            height_feature = rand_tensor.size(-2)
+            if pool_type == 'linear':
+                self.pool = nn.Linear(height_feature, 1, bias=False)
+            else:
+                self.cnn.n_features *= height_feature
+                self.pool = self.concat
         self.vocab = vocab
+
+    def concat(self, images: torch.Tensor) -> torch.Tensor:
+        '''
+        Shapes:
+        -------
+            - images: [B,C,W,H]
+
+        Returns:
+        --------
+            - outputs: [B,C,W,1]
+        '''
+        images = images.transpose(1, 2) # [B,W,C,H]
+        images = images.reshape(*images.shape[:2], -1) # [B,W,CxH]
+        images = images.transpose(-2, -1).unsqueeze(-1) # [B,CxH,W,1]
+        return images
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         '''
@@ -149,9 +177,11 @@ class CTCModel(nn.Module):
             - outputs: [B,S,V]
         '''
         images = self.cnn(images) # [B,C,H,W]
-        images = self.pool(images) # [B,C,1,W]
-        images = images.squeeze(-2).transpose(-1, -2) # [B,S=W,C]
+        images = images.transpose(-2,-1) # [B,C,W,H]
+        images = self.pool(images) # [B,C,W,1]
+        images = images.squeeze(-1).transpose(-1, -2) # [B,S=W,C]
         text = self._forward_decode(images) # [B,S,V]
+        text = F.log_softmax(text, -1) # [B,S,V]
         return text
 
     def _forward_decode(self, images: torch.Tensor) -> torch.Tensor:
@@ -197,11 +227,11 @@ class CTCModel(nn.Module):
         return torch.nn.utils.rnn.pad_sequence(results, batch_first=True)
 
 class CTCModelTFEncoder(CTCModel):
-    def __init__(self, cnn, vocab, config):
+    def __init__(self, cnn, vocab, **config):
         super().__init__(cnn, vocab, config)
         # use TransformerEncoderLayer/TransformerEncoder as decoder instead of e.g. LSTM
         decoder_layer = nn.TransformerEncoderLayer(d_model=cnn.n_features, nhead=config['nhead'])
-        self.decoder = nn.TransformerEncoder(decoder_layer, config['num_layers'])
+        self.decoder = nn.TransformerEncoder(decoder_layer, config['encoder_nlayers'])
         self.character_distribution = nn.Linear(cnn.n_features, vocab.size) # [B,S,V]
 
     def _forward_decode(self, images: torch.Tensor) -> torch.Tensor:
@@ -217,8 +247,35 @@ class CTCModelTFEncoder(CTCModel):
         outputs = self.character_distribution(images) # [B,S,V]
         return outputs
 
+
+class CTCModelTF(CTCModel):
+    def __init__(self, cnn, vocab, **config):
+        super().__init__(cnn, vocab, **config)
+        self.decoder = nn.Transformer(d_model=cnn.n_features,
+                                      nhead=config['nhead'], 
+                                      num_encoder_layers=config['encoder_nlayers'],
+                                      num_decoder_layers=config['decoder_nlayers'],
+                                      dim_feedforward=config['dim_feedforward'],
+                                      dropout=config['dropout'])
+        self.character_distribution = nn.Linear(cnn.n_features, vocab.size) # [B,S,V]
+
+    def _forward_decode(self, images: torch.Tensor) -> torch.Tensor:
+        '''
+        Shapes:
+        -------
+            images: (N,S,C)
+            outputs: (N,S,C)
+        '''
+        images = images.transpose(0,1) # [S,B,C]
+        attn_mask = nn.Transformer.generate_square_subsequent_mask(None, images.size(0)).to(images.device) # [B,S,S]
+        images = self.decoder(images, images, src_mask=attn_mask, tgt_mask=attn_mask) # [S,B,C]
+        images = images.transpose(0,1) # [B,S,C]
+        outputs = self.character_distribution(images) # [B,S,V]
+        return outputs
+
+
 class CTCModelRNN(CTCModel):
-    def __init__(self, cnn, vocab, config):
+    def __init__(self, cnn, vocab, **config):
         super().__init__(cnn, vocab, config)
 
         self._num_layers = config['num_layers']

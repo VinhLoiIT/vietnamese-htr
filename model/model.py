@@ -8,7 +8,7 @@ from .attention import get_attention
 from .positional_encoding import PositionalEncoding1d, PositionalEncoding2d
 
 __all__ = [
-    'Model', 'ModelTF', 'ModelRNN', 'ModelTFEncoder',
+    'Model', 'ModelTF', 'ModelRNN',
 ]
 
 class _BeamSearchNode(object):
@@ -121,7 +121,7 @@ class Model(nn.Module):
         pass
 
 class ModelTF(Model):
-    def __init__(self, cnn, vocab, config):
+    def __init__(self, cnn, vocab, **config):
         super().__init__(cnn, vocab)
         self.register_buffer('start_index', torch.tensor(vocab.SOS_IDX, dtype=torch.long))
         self.max_length = config['max_length']
@@ -134,6 +134,17 @@ class ModelTF(Model):
                                                     dim_feedforward=config['dim_feedforward'],
                                                     dropout=config['dropout'])
         self.decoder = nn.TransformerDecoder(decoder_layer, config['decoder_nlayers'])
+
+        if config.get('use_encoder', False):
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=config['attn_size'],
+                nhead=config['nhead'],
+                dim_feedforward=config['dim_feedforward'],
+                dropout=config['dropout'],
+            )
+            self.encoder = nn.TransformerEncoder(encoder_layer, config['encoder_nlayers'])
+        else:
+            self.encoder = lambda x: x
 
         if config.get('use_pe_text', False):
             self.pe_text = PositionalEncoding1d(config['attn_size'], batch_first=True)
@@ -160,10 +171,12 @@ class ModelTF(Model):
         image_features = self.Ic(image_features) # [B,H',W',E]
         image_features = image_features.permute(0,3,1,2) # [B, E, H', W']
         image_features = self.pe_image(image_features) # [B,E,H',W']
-        batch_size, height, width = images.size(0), images.size(2), images.size(3)
+        batch_size, height, width = image_features.size(0), image_features.size(2), image_features.size(3)
         image_features = image_features.transpose(-2, -1) # [B,E,W',H']
-        image_features = image_features.reshape(batch_size, self.Ic.out_features, -1) # [B, E, S=W'xH']
-        image_features = image_features.transpose(1,2) # [B, S, E]
+        image_features = image_features.reshape(batch_size, -1, width*height) # [B, E, S=W'xH']
+        image_features = image_features.permute(2,0,1) # [S,B,E]
+        image_features = self.encoder(image_features) # [S,B,E]
+        image_features = image_features.transpose(0, 1) # [B,S,E]
         return image_features
 
     def embed_text(self, text):
@@ -192,12 +205,12 @@ class ModelTF(Model):
         --------
             - outputs: [B,T,V]
         '''
-        embed_image.transpose_(0, 1) # [S,B,E]
-        embed_text.transpose_(0, 1) # [T,B,E]
+        embed_image = embed_image.transpose(0, 1) # [S,B,E]
+        embed_text = embed_text.transpose(0, 1) # [T,B,E]
 
         attn_mask = nn.Transformer.generate_square_subsequent_mask(None, embed_text.size(0)).to(embed_text.device)
         outputs = self.decoder(embed_text, embed_image, tgt_mask=attn_mask)
-        outputs.transpose_(0,1)
+        outputs = outputs.transpose(0,1)
         outputs = self.character_distribution(outputs)
         return outputs
 
@@ -331,35 +344,9 @@ class ModelTF(Model):
 
         return torch.nn.utils.rnn.pad_sequence(decoded_batch, batch_first=True)[:, 1:]
 
-class ModelTFEncoder(ModelTF):
-    def __init__(self, cnn, vocab, config):
-        super().__init__(cnn, vocab, config)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=config['attn_size'],
-            nhead=config['nhead'],
-            dim_feedforward=config['dim_feedforward'],
-            dropout=config['dropout'],
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, config['encoder_nlayers'])
-
-    def embed_image(self, images):
-        '''
-        Shapes:
-        -------
-            - images: [B,C,H,W]
-
-        Returns:
-        --------
-            - image_features: [B,S,E]
-        '''
-        images = super().embed_image(images) # B,S,E
-        images = images.transpose(0, 1) # S,B,E
-        images = self.encoder(images) # S,B,E
-        images = images.transpose(0, 1) # B,S,E
-        return images
 
 class ModelRNN(Model):
-    def __init__(self, cnn, vocab, config):
+    def __init__(self, cnn, vocab, **config):
         super().__init__(cnn, vocab)
         self.hidden_size = config['hidden_size']
         self.register_buffer('start_index', torch.tensor(vocab.SOS_IDX, dtype=torch.long))

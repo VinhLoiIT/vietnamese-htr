@@ -144,7 +144,8 @@ def main(args):
 
     if args.model == 'tf':
         model_config = root_config['tf']
-        model = CTCModelTFEncoder(cnn, vocab, model_config)
+        model = CTCModelTF(cnn, vocab, model_config)
+        #model = CTCModelTFEncoder(cnn, vocab, model_config)
     elif args.model == 's2s':
         model_config = root_config['s2s']
         model = CTCModelRNN(cnn, vocab, model_config)
