@@ -4,7 +4,7 @@ from typing import Dict, Union
 
 from torch import optim
 from model import *
-from dataset import IAM, VNOnDB, RIMES, RIMESLine
+from dataset import IAM, VNOnDB, RIMES, RIMESLine, Cinnamon
 
 MAPPING_NAME = {
     # optimizers
@@ -38,13 +38,13 @@ MAPPING_NAME = {
     'vnondb_line': VNOnDB,
     'rimes': RIMES,
     'rimes_line': RIMESLine,
+    'cinnamon': Cinnamon,
 
 }
 
 def initialize(config: Dict, *args, **kwargs):
     assert config.get('name', None) in MAPPING_NAME.keys()
-    params = config.get('args', {})
-    params.update(kwargs)
+    params = {**config.get('args', {}), **kwargs }
     obj = MAPPING_NAME[config['name']](*args, **params)
     return obj
 

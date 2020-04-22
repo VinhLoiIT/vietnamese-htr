@@ -1,5 +1,5 @@
 model:
-  name: ctc_tf_full
+  name: ctc_tf_encoder
   args:
     scale_height: 96
     attn_size: 512
@@ -7,5 +7,4 @@ model:
     dim_feedforward: 2048
     dropout: 0.1
     encoder_nlayers: 1
-    decoder_nlayers: 1
     pool_type: adaptive_avg_pool

@@ -1,15 +1,15 @@
-import os
-import datetime
 from typing import Dict, List, Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from basesystem import BaseSystem
+from .basesystem import BaseSystem
 from metrics import CharacterErrorRate, Running, WordErrorRate, Loss
-from utils import CTCStringTransform, ScaleImageByHeight, StringTransform
-
+from utils import CTCStringTransform, StringTransform
+from PIL import Image
+from torchvision import transforms
+from config import Config
 
 class CTCSystem(BaseSystem):
     def __init__(self):
@@ -44,7 +44,7 @@ class CTCSystem(BaseSystem):
         ctc_tf = CTCStringTransform(self.vocab, batch_first=True)
         out_tf = lambda metric_inputs: (ctc_tf(metric_inputs[0]), string_tf(metric_inputs[1]))
         metrics = {
-            'CER': Running(CharacterErrorRate(output_transform=out_tf)),
+            'CER': Running(CharacterErrorRate(logfile='ctc_cer.txt', output_transform=out_tf)),
             'WER': Running(WordErrorRate(output_transform=out_tf)),
         }
         return metrics
@@ -66,3 +66,39 @@ class CTCSystem(BaseSystem):
 
     def is_add_blank(self):
         return True
+
+class CTCInference():
+    def __init__(self, checkpoint, device):
+        if isinstance(checkpoint, str):
+            checkpoint = torch.load(checkpoint, map_location=device)
+        self.device = device
+        self.config = Config(checkpoint['config'])
+
+        system = CTCSystem()
+        test_data = system.prepare_test_dataset(self.config) # TODO: move vocab to outside of class
+        assert test_data is not None
+        self.vocab = system.vocab = system.prepare_vocab(self.config)
+
+        self.image_transform = system.prepare_test_image_transform(self.config)
+
+        self.model = system.prepare_model(self.config)
+        self.model.to(self.device)
+        self.model.load_state_dict(checkpoint['model'])
+        self.model.eval()
+        self.freeze()
+
+        self.output_transform = CTCStringTransform(self.vocab, batch_first=True)
+
+    def freeze(self):
+        for param in self.model.parameters():
+            param.requires_grad_ = False
+
+    @torch.no_grad()
+    def inference(self, images: List[Image.Image]) -> List[str]:
+        images = list(map(self.image_transform, images))
+        outputs = []
+        for image in images:
+            image = image.unsqueeze(0)
+            outputs = self.model.greedy(image.to(self.device))
+            outputs = self.output_transform(outputs)
+        return outputs

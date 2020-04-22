@@ -5,6 +5,7 @@ from .vocab import CollateWrapper
 from .iam import IAM
 from .rimes import RIMES, RIMESLine
 from .vnondb import VNOnDB
+from .cinnamon import Cinnamon
 
 
 def _get_dataset_partition_helper(dataset, partition, transform, flatten_type, add_blank):
@@ -51,6 +52,21 @@ def _get_dataset_partition_helper(dataset, partition, transform, flatten_type, a
         if partition == 'val':
             return IAM('./data/IAM/splits/validation.uttlist', transform)
         return None
+    elif dataset == 'cinnamon':
+        train_image_folder = './data/Cinnamon/0916_Data Samples 2'
+        test_image_folder = './data/Cinnamon/1015_Private Test'
+        test_csv = f'./data/Cinnamon/test.csv'
+        validation_csv = f'./data/Cinnamon/val.csv'
+        if partition == 'test':
+            return Cinnamon(test_image_folder, test_csv, train_csv, transform, flatten_type, add_blank=add_blank)
+        if partition == 'train':
+            return Cinnamon(train_image_folder, train_csv, train_csv, transform, flatten_type, add_blank=add_blank)
+        if partition == 'val':
+            return Cinnamon(train_image_folder, validation_csv, train_csv, transform, flatten_type, add_blank=add_blank)
+        if partition == 'trainval':
+            train = Cinnamon(train_image_folder, train_csv, train_csv, transform, flatten_type, add_blank=add_blank)
+            val = Cinnamon(train_image_folder, validation_csv, train_csv, transform, flatten_type, add_blank=add_blank)
+            return ConcatDataset([train, val])
 
     return None
 

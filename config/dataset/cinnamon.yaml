@@ -1,0 +1,16 @@
+dataset:
+  name: cinnamon
+  args:
+    train_csv: data/Cinnamon/train.csv
+
+  train:
+    csv: data/Cinnamon/train.csv
+    image_folder: data/Cinnamon/0916_Data Samples 2
+
+  validation:
+    csv: data/Cinnamon/val.csv
+    image_folder: data/Cinnamon/0916_Data Samples 2
+
+  test:
+    csv: data/Cinnamon/test.csv
+    image_folder: data/Cinnamon/1015_Private Test

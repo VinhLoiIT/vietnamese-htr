@@ -401,8 +401,8 @@ class ModelRNN(Model):
             if self.training and teacher_force:
                 rnn_input = embed_text[:, t]
             else:
-                output = output.argmax(-1)
-                rnn_input = F.one_hot(output, self.vocab.size).float().to(outputs)
+                output = output.argmax(-1, keepdim=True) # [B, 1]
+                rnn_input = self.embed_text(output).squeeze(1)
 
         return outputs
 
@@ -422,7 +422,7 @@ class ModelRNN(Model):
         batch_size = embedded_image.size(0)
 
         embedded_image = self.Ic(embedded_image)
-        rnn_input = self.start_index.expand(batch_size).float() # [B,V]
+        rnn_input = self.embed_text(self.start_index.expand(batch_size).unsqueeze(-1)).squeeze(1) # [B,V]
 
         hidden = self._init_hidden(batch_size).to(embedded_image.device) # [B, H]
         cell_state = self._init_hidden(batch_size).to(embedded_image.device) # [B, H]
@@ -440,7 +440,7 @@ class ModelRNN(Model):
             output = self.character_distribution(hidden) # [B,V]
             output = output.argmax(-1)
             outputs[:, t] = output
-            rnn_input = F.one_hot(output, self.vocab.size).float().to(outputs.device)
+            rnn_input = self.embed_text(output.unsqueeze(-1)).squeeze(1) # [B,V]
 
             end_flag |= (output.cpu().squeeze(-1) == self.vocab.char2int(self.vocab.EOS))
             if end_flag.all():

@@ -205,7 +205,6 @@ class CTCModel(nn.Module):
             - outputs: [B,S]
         '''
         outputs = self(images) # [B,S,V]
-        outputs = F.softmax(outputs, -1)
         return outputs.argmax(-1) # [B,S]
     
     def beamsearch(self, images: torch.Tensor) -> torch.Tensor:
@@ -228,7 +227,7 @@ class CTCModel(nn.Module):
 
 class CTCModelTFEncoder(CTCModel):
     def __init__(self, cnn, vocab, **config):
-        super().__init__(cnn, vocab, config)
+        super().__init__(cnn, vocab, **config)
         # use TransformerEncoderLayer/TransformerEncoder as decoder instead of e.g. LSTM
         decoder_layer = nn.TransformerEncoderLayer(d_model=cnn.n_features, nhead=config['nhead'])
         self.decoder = nn.TransformerEncoder(decoder_layer, config['encoder_nlayers'])
@@ -276,7 +275,7 @@ class CTCModelTF(CTCModel):
 
 class CTCModelRNN(CTCModel):
     def __init__(self, cnn, vocab, **config):
-        super().__init__(cnn, vocab, config)
+        super().__init__(cnn, vocab, **config)
 
         self._num_layers = config['num_layers']
         self._num_direct = 2 if config['bidirectional'] else 1

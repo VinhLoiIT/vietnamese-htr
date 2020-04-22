@@ -3,7 +3,7 @@ import collections.abc
 import datetime
 import logging
 import os
-from typing import Dict
+from typing import Dict, Union
 
 import torch
 import torch.nn as nn
@@ -21,7 +21,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import transforms
 
-from dataset import RIMES, RIMESLine, VNOnDB
+from dataset import RIMES, RIMESLine, VNOnDB, Cinnamon
 from dataset.vocab import CollateWrapper
 from metrics import CharacterErrorRate, Running, WordErrorRate
 from model import *
@@ -145,10 +145,10 @@ class BaseSystem:
             self.trainer.run(train_loader, self.config['max_epochs'], seed=seed)
         self.logger.info('Training done')
 
-    def test(self, config: Dict):
-        assert config.get('checkpoint', None) is not None
-        self.logger.info(f'Load configuration from {config["checkpoint"]}')
-        checkpoint = torch.load(config['checkpoint'], map_location=self.device)
+    def test(self, checkpoint: Union[Dict, str]):
+        self.logger.info(f'Load configuration from checkpoint')
+        if isinstance(checkpoint, str):
+            checkpoint = torch.load(checkpoint, map_location=self.device)
         self.config = Config(checkpoint['config'])
 
         self.logger.info('Configurations')
@@ -234,6 +234,8 @@ class BaseSystem:
             vocab = RIMES.vocab
         elif config['dataset']['name'] == 'rimes_line':
             vocab = RIMESLine.vocab
+        elif config['dataset']['name'] == 'cinnamon':
+            vocab = Cinnamon.vocab
         return vocab
 
     def prepare_model_forward_inputs(self, batch):

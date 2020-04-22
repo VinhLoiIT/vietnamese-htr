@@ -1,5 +1,4 @@
-from basesystem import BaseSystem
-from ctcsystem import CTCSystem
+from system import CESystem, CTCSystem
 import logging
 import argparse
 from config import Config
@@ -9,20 +8,17 @@ def setup_train(args: Dict):
     config = Config(args['base_config'], **args)
     # TODO: override config
     if args['loss'] == 'ce':
-        system = BaseSystem
+        system = CESystem
     else:
         system = CTCSystem
     del args['loss']
     system().train(config)
 
 def setup_test(args: Dict):
-    if config['loss'] == 'ce':
-        system = BaseSystem
-    else:
-        system = CTCSystem
-    del config['loss']
-
-    system().test(config)
+    system = CESystem if args['loss'] == 'ce' else CTCSystem
+    del args['loss']
+    checkpoint = args['checkpoint']
+    system().test(checkpoint)
 
 
 if __name__ == '__main__':
