@@ -110,19 +110,20 @@ class CollateWrapper:
         batch.sort(key=lambda sample: len(sample[1]), reverse=True)
         image_samples, label_samples = list(zip(*batch))
 
+        self.images = self.collate_images(image_samples)
+        self.lengths = torch.tensor([len(label) for label in label_samples])
+        self.labels = pad_sequence(label_samples, batch_first=True)
+
+    def collate_images(self, images: List[torch.Tensor]) -> torch.Tensor:
         # images: [B, 3, H, W]
         max_image_row = max([image.size(1) for image in image_samples])
         max_image_col = max([image.size(2) for image in image_samples])
-        self.images = torch.zeros(batch_size, 3, max_image_row, max_image_col)
-        self.sizes = torch.zeros(batch_size, 2, dtype=torch.long)
+        images = torch.zeros(batch_size, 3, max_image_row, max_image_col)
         for i, image in enumerate(image_samples):
             image_row = image.shape[1]
             image_col = image.shape[2]
-            self.sizes[i, 0], self.sizes[i, 1] = image_row, image_col
             self.images[i, :, :image_row, :image_col] = image
-
-        self.lengths = torch.tensor([len(label) for label in label_samples])
-        self.labels = pad_sequence(label_samples, batch_first=True)
+        return images
 
     def pin_memory(self):
         self.images.pin_memory()

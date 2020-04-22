@@ -83,7 +83,7 @@ class CTCInference():
 
         self.model = system.prepare_model(self.config)
         self.model.to(self.device)
-        self.model.load_state_dict(checkpoint['model'])
+        print(self.model.load_state_dict(checkpoint['model']))
         self.model.eval()
         self.freeze()
 

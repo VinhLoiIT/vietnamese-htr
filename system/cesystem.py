@@ -9,8 +9,12 @@ from .basesystem import BaseSystem
 from metrics import CharacterErrorRate, Loss, Running, WordErrorRate
 from utils import CTCStringTransform, StringTransform
 
+from PIL import Image
+from config import Config
+
 __all__ = [
     'CESystem',
+    'CEInference',
 ]
 
 
@@ -65,3 +69,39 @@ class CESystem(BaseSystem):
 
     def is_add_blank(self):
         return False
+
+class CEInference():
+    def __init__(self, checkpoint, device):
+        if isinstance(checkpoint, str):
+            checkpoint = torch.load(checkpoint, map_location=device)
+        self.device = device
+        self.config = Config(checkpoint['config'])
+
+        system = CESystem()
+        test_data = system.prepare_test_dataset(self.config) # TODO: move vocab to outside of class
+        assert test_data is not None
+        self.vocab = system.vocab = system.prepare_vocab(self.config)
+
+        self.image_transform = system.prepare_test_image_transform(self.config)
+
+        self.model = system.prepare_model(self.config)
+        self.model.to(self.device)
+        print(self.model.load_state_dict(checkpoint['model']))
+        self.model.eval()
+        self.freeze()
+
+        self.output_transform = StringTransform(self.vocab, batch_first=True)
+
+    def freeze(self):
+        for param in self.model.parameters():
+            param.requires_grad_ = False
+
+    @torch.no_grad()
+    def inference(self, images: List[Image.Image]) -> List[str]:
+        images = list(map(self.image_transform, images))
+        outputs = []
+        for image in images:
+            image = image.unsqueeze(0)
+            outputs = self.model.greedy(image.to(self.device))
+            outputs = self.output_transform(outputs)
+        return outputs
