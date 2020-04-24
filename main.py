@@ -12,7 +12,7 @@ def setup_train(args: Dict):
     else:
         system = CTCSystem
     del args['loss']
-    system().train(config)
+    system().train(config, args['checkpoint'])
 
 def setup_test(args: Dict):
     system = CESystem if args['loss'] == 'ce' else CTCSystem

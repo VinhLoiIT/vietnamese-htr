@@ -38,14 +38,14 @@ class CESystem(BaseSystem):
     def prepare_metric_inputs(self, decoded, batch):
         return decoded, batch.labels[:, 1:].to(self.device)
 
-    def prepare_train_metrics(self, log_interval: int) -> Dict:
+    def prepare_train_metrics(self, loss_fn, log_interval: int) -> Dict:
         train_metrics = {
-            'Loss': Running(Loss(self.loss_fn), reset_interval=log_interval)
+            'Loss': Running(Loss(loss_fn), reset_interval=log_interval)
         }
         return train_metrics
 
-    def prepare_test_metrics(self) -> Dict:
-        string_tf = StringTransform(self.vocab, batch_first=True)
+    def prepare_test_metrics(self, vocab) -> Dict:
+        string_tf = StringTransform(vocab, batch_first=True)
         out_tf = lambda outputs: list(map(string_tf, outputs))
         metrics = {
             'CER': Running(CharacterErrorRate(output_transform=out_tf)),
@@ -53,9 +53,8 @@ class CESystem(BaseSystem):
         }
         return metrics
 
-    def prepare_val_metrics(self) -> Dict:
-        loss_fn = self.prepare_loss_function()
-        string_tf = StringTransform(self.vocab, batch_first=True)
+    def prepare_val_metrics(self, vocab, loss_fn) -> Dict:
+        string_tf = StringTransform(vocab, batch_first=True)
         out_tf = lambda outputs: list(map(string_tf, outputs))
         metrics = {
             'Loss': Running(Loss(loss_fn, lambda outputs: outputs[0])),
@@ -64,7 +63,7 @@ class CESystem(BaseSystem):
         }
         return metrics
 
-    def prepare_loss_function(self) -> nn.Module:
+    def prepare_loss_function(self, vocab) -> nn.Module:
         return nn.CrossEntropyLoss()
 
     def is_add_blank(self):

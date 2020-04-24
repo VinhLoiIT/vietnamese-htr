@@ -24,10 +24,8 @@ class RIMESVocab(Vocab):
         return label
 
 class RIMES(Dataset):
-    vocab = None
-    def __init__(self, image_folder, groundtruth_txt, image_transform=None, add_blank: bool=False):
-        if RIMES.vocab is None:
-            RIMES.vocab = RIMESVocab(add_blank)
+    def __init__(self, vocab, image_folder, groundtruth_txt, image_transform=None):
+        self.vocab = vocab
         with open (groundtruth_txt, encoding='utf-8-sig') as f:
             content = f.readlines()
 
@@ -68,16 +66,13 @@ class RIMESLineVocab(Vocab):
 
 
 class RIMESLine(Dataset):
-    vocab = None
-    def __init__(self, root_folder, csv, image_transform=None, add_blank: bool=False):
-        if RIMESLine.vocab is None:
-            RIMESLine.vocab = RIMESLineVocab(add_blank)
-
+    def __init__(self, vocab, root_folder, csv, image_transform=None):
+        self.vocab = vocab
         self.image_transform = image_transform
 
         self.df = pd.read_csv(csv, sep='\t', keep_default_na=False)
         self.df['filename'] = self.df['filename'].apply(lambda path: os.path.join(root_folder, path))
-        self.df['label'] = self.df['label'].apply(RIMESLine.vocab.process_label).apply(RIMESLine.vocab.add_signals)
+        self.df['label'] = self.df['label'].apply(self.vocab.process_label).apply(self.vocab.add_signals)
 
     def __len__(self):
         return len(self.df)
@@ -90,7 +85,7 @@ class RIMESLine(Dataset):
         if self.image_transform:
             image = self.image_transform(image)
 
-        label = torch.tensor(list(map(RIMESLine.vocab.char2int, label)))
+        label = torch.tensor(list(map(self.vocab.char2int, label)))
 
         return image, label
 

@@ -1,7 +1,6 @@
 dataset:
   name: cinnamon
   args:
-    train_csv: data/Cinnamon/train.csv
 
   train:
     csv: data/Cinnamon/train.csv

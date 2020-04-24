@@ -20,12 +20,11 @@ class CinnamonVocab(Vocab):
         return labels
 
 class Cinnamon(Dataset):
-    vocab = None
-    def __init__(self, image_folder, csv, train_csv: str, image_transform=None, add_blank: bool=False):
-        if Cinnamon.vocab is None:
-            Cinnamon.vocab = CinnamonVocab(train_csv, add_blank)
+    def __init__(self, vocab, image_folder, csv, image_transform=None):
+        self.vocab = vocab
         self.df = pd.read_csv(csv, sep='\t', keep_default_na=False)
         self.df['image'] = self.df['image'].apply(lambda path: os.path.join(image_folder, path))
+        self.df['label'] = self.df['label'].apply(self.vocab.process_label).apply(self.vocab.add_signals)
         self.image_transform = image_transform
 
     def __len__(self):
@@ -37,6 +36,6 @@ class Cinnamon(Dataset):
             image = self.image_transform(image)
 
         text = self.df['label'].iloc[index]
-        text = torch.tensor(list(map(Cinnamon.vocab.char2int, text)))
+        text = torch.tensor(list(map(self.vocab.char2int, text)))
 
         return image, text

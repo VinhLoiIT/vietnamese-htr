@@ -2,7 +2,6 @@ dataset:
   name: vnondb
   args:
     flatten_type:  # flattening_1, flattening_2, or leave blank
-    train_csv: data/VNOnDB/word/train_word.csv
 
   train:
     csv: data/VNOnDB/word/train_word.csv

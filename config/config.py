@@ -44,7 +44,8 @@ MAPPING_NAME = {
 
 def initialize(config: Dict, *args, **kwargs):
     assert config.get('name', None) in MAPPING_NAME.keys()
-    params = {**config.get('args', {}), **kwargs }
+    config_args = config.get('args', {}) or {}
+    params = {**config_args, **kwargs }
     obj = MAPPING_NAME[config['name']](*args, **params)
     return obj
 

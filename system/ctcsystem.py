@@ -31,28 +31,27 @@ class CTCSystem(BaseSystem):
     def prepare_metric_inputs(self, decoded, batch):
         return decoded, batch.labels[:, 1:].to(self.device)
 
-    def prepare_train_metrics(self, log_interval: int) -> Dict:
+    def prepare_train_metrics(self, loss_fn, log_interval: int) -> Dict:
         train_metrics = {
-            'Loss': Running(Loss(self.loss_fn,
+            'Loss': Running(Loss(loss_fn,
                                  batch_size=lambda outputs: len(outputs[1])),
                             reset_interval=log_interval)
         }
         return train_metrics
 
-    def prepare_test_metrics(self) -> Dict:
-        string_tf = StringTransform(self.vocab, batch_first=True)
-        ctc_tf = CTCStringTransform(self.vocab, batch_first=True)
+    def prepare_test_metrics(self, vocab) -> Dict:
+        string_tf = StringTransform(vocab, batch_first=True)
+        ctc_tf = CTCStringTransform(vocab, batch_first=True)
         out_tf = lambda metric_inputs: (ctc_tf(metric_inputs[0]), string_tf(metric_inputs[1]))
         metrics = {
-            'CER': Running(CharacterErrorRate(logfile='ctc_cer.txt', output_transform=out_tf)),
-            'WER': Running(WordErrorRate(output_transform=out_tf)),
+            'CER': Running(CharacterErrorRate(logfile='ctc_cer.txt', output_transform=lambda outputs: out_tf(outputs[1]))),
+            'WER': Running(WordErrorRate(output_transform=lambda outputs: out_tf(outputs[1]))),
         }
         return metrics
 
-    def prepare_val_metrics(self) -> Dict:
-        loss_fn = self.prepare_loss_function()
-        string_tf = StringTransform(self.vocab, batch_first=True)
-        ctc_tf = CTCStringTransform(self.vocab, batch_first=True)
+    def prepare_val_metrics(self, vocab, loss_fn) -> Dict:
+        string_tf = StringTransform(vocab, batch_first=True)
+        ctc_tf = CTCStringTransform(vocab, batch_first=True)
         out_tf = lambda metric_inputs: (ctc_tf(metric_inputs[0]), string_tf(metric_inputs[1]))
         metrics = {
             'Loss': Running(Loss(loss_fn, lambda outputs: outputs[0])),
@@ -61,8 +60,8 @@ class CTCSystem(BaseSystem):
         }
         return metrics
 
-    def prepare_loss_function(self) -> nn.Module:
-        return nn.CTCLoss(blank=self.vocab.BLANK_IDX)
+    def prepare_loss_function(self, vocab) -> nn.Module:
+        return nn.CTCLoss(blank=vocab.BLANK_IDX)
 
     def is_add_blank(self):
         return True

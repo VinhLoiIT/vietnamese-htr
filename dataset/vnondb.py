@@ -236,26 +236,19 @@ class Flattening_2(Flattening):
 
 class VNOnDB(Dataset):
 
-    vocab : VNOnDBVocab = None
-
     def __init__(self,
+        vocab: Vocab,
         image_folder: str,
         csv: str,
-        train_csv: str=None,
         image_transform=None,
         flatten_type: str=None,
         add_blank: bool=False,
     ):
-        if VNOnDB.vocab is None:
-            if flatten_type is not None:
-                VNOnDB.vocab = VNOnDBVocabFlatten(train_csv, flatten_type, add_blank)
-            else:
-                VNOnDB.vocab = VNOnDBVocab(train_csv, add_blank)
+        self.vocab = vocab
         self.image_transform = image_transform
-
         self.df = pd.read_csv(csv, sep='\t', keep_default_na=False, index_col=0)
         self.df['id'] = self.df['id'].apply(lambda id: os.path.join(image_folder, id+'.png'))
-        self.df['label'] = self.df['label'].apply(VNOnDB.vocab.process_label).apply(VNOnDB.vocab.add_signals)
+        self.df['label'] = self.df['label'].apply(self.vocab.process_label).apply(self.vocab.add_signals)
 
     def __len__(self):
         return len(self.df)
@@ -267,7 +260,7 @@ class VNOnDB(Dataset):
         if self.image_transform:
             image = self.image_transform(image)
         
-        label = torch.tensor(list(map(VNOnDB.vocab.char2int, self.df['label'][idx])))
+        label = torch.tensor(list(map(self.vocab.char2int, self.df['label'][idx])))
             
         return image, label
 

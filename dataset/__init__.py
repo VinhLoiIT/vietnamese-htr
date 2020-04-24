@@ -1,11 +1,11 @@
 import torch
 from torch.utils.data import ConcatDataset, DataLoader, Subset
-from .vocab import CollateWrapper
+from .vocab import CollateWrapper, Vocab
 
 from .iam import IAM
-from .rimes import RIMES, RIMESLine
-from .vnondb import VNOnDB
-from .cinnamon import Cinnamon
+from .rimes import RIMES, RIMESLine, RIMESLineVocab, RIMESVocab
+from .vnondb import VNOnDB, VNOnDBVocab, VNOnDBVocabFlatten
+from .cinnamon import Cinnamon, CinnamonVocab
 
 
 def _get_dataset_partition_helper(dataset, partition, transform, flatten_type, add_blank):
