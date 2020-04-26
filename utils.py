@@ -25,15 +25,18 @@ def update_dict(d, u):
     return d
 
 class ScaleImageByHeight(object):
-    def __init__(self, target_height):
+    def __init__(self, target_height, min_width:int=None):
         self.target_height = target_height
+        self.min_width = int(min_width or target_height * 2.5)
 
     def __call__(self, image):
         width, height = image.size
         factor = self.target_height / height
-        new_width = int(width * factor)
-        new_height = int(height * factor)
-        image = image.resize((new_width, new_height), Image.NEAREST)
+        scaled_width = int(width * factor)
+        resized_image = image.resize((scaled_width, self.target_height), Image.NEAREST)
+        image_width = scaled_width if scaled_width > self.min_width else self.min_width
+        image = Image.new('L', (self.min_width, self.target_height))
+        image.paste(resized_image)
         return image
     
 class HandcraftFeature(object):
