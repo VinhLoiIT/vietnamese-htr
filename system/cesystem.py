@@ -46,7 +46,7 @@ class CESystem(BaseSystem):
 
     def prepare_test_metrics(self, vocab) -> Dict:
         string_tf = StringTransform(vocab, batch_first=True)
-        out_tf = lambda outputs: list(map(string_tf, outputs))
+        out_tf = lambda outputs: list(map(string_tf, outputs[1]))
         metrics = {
             'CER': Running(CharacterErrorRate(output_transform=out_tf)),
             'WER': Running(WordErrorRate(output_transform=out_tf)),
