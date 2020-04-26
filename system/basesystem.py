@@ -64,6 +64,7 @@ class BaseSystem:
 
         self.logger.info('Create model')
         model = self.prepare_model(vocab, config).to(self.device)
+        self.logger.info(model)
 
         # Step 3: Init loss function
         self.logger.info('Create loss')
