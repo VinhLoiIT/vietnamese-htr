@@ -26,6 +26,7 @@ MAPPING_NAME = {
 
     # model
     'tf': ModelTF,
+    'tf_a2d': ModelTFA2D,
     'rnn': ModelRNN,
 
     # model

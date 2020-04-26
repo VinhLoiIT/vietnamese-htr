@@ -5,10 +5,10 @@ import torch.nn.functional as F
 from queue import PriorityQueue
 from typing import List, Dict, Tuple
 from .attention import get_attention
-from .positional_encoding import PositionalEncoding1d, PositionalEncoding2d
+from .positional_encoding import PositionalEncoding1d, PositionalEncoding2d, A2DPE
 
 __all__ = [
-    'Model', 'ModelTF', 'ModelRNN',
+    'Model', 'ModelTF', 'ModelRNN', 'ModelTFA2D'
 ]
 
 class _BeamSearchNode(object):
@@ -343,6 +343,35 @@ class ModelTF(Model):
             decoded_batch.append(string_index)
 
         return torch.nn.utils.rnn.pad_sequence(decoded_batch, batch_first=True)[:, 1:]
+
+
+class ModelTFA2D(ModelTF):
+    def __init__(self, cnn, vocab, **config):
+        config['use_pe_image'] = False
+        super().__init__(cnn, vocab, **config)
+        self.a2d_pe_image = A2DPE(cnn.n_features)
+
+    def embed_image(self, images):
+        '''
+        Shapes:
+        -------
+            - images: [B,C,H,W]
+
+        Returns:
+        --------
+            - image_features: [B,S,E]
+        '''
+        image_features = self.cnn(images) # [B, C', H', W']
+        image_features = self.a2d_pe_image(image_features) # [B,C',H',W']
+        image_features = image_features.permute(0,2,3,1) # [B, H', W', C']
+        image_features = self.Ic(image_features) # [B,H',W',E]
+        image_features = image_features.permute(0,3,2,1) # [B, E, W',H']
+        batch_size, height, width = image_features.size(0), image_features.size(3), image_features.size(2)
+        image_features = image_features.reshape(batch_size, -1, width*height) # [B, E, S=W'xH']
+        image_features = image_features.permute(2,0,1) # [S,B,E]
+        image_features = self.encoder(image_features) # [S,B,E]
+        image_features = image_features.transpose(0, 1) # [B,S,E]
+        return image_features
 
 
 class ModelRNN(Model):
