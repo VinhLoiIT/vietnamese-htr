@@ -8,3 +8,4 @@ model:
     dropout: 0.1
     encoder_nlayers: 1
     pool_type: adaptive_avg_pool
+    use_stn: false

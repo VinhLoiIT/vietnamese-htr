@@ -6,6 +6,7 @@ from queue import PriorityQueue
 from typing import List, Dict, Tuple
 from .attention import get_attention
 from .positional_encoding import PositionalEncoding1d, PositionalEncoding2d, A2DPE
+from .stn import STN
 
 __all__ = [
     'Model', 'ModelTF', 'ModelRNN', 'ModelTFA2D'
@@ -146,6 +147,11 @@ class ModelTF(Model):
         else:
             self.encoder = lambda x: x
 
+        if config.get('use_stn', False):
+            self.stn = STN(in_channels=3)
+        else:
+            self.stn = lambda x: x
+
         if config.get('use_pe_text', False):
             self.pe_text = PositionalEncoding1d(config['attn_size'], batch_first=True)
         else:
@@ -166,7 +172,8 @@ class ModelTF(Model):
         --------
             - image_features: [B,S,E]
         '''
-        image_features = self.cnn(images) # [B, C', H', W']
+        image_features = self.stn(images) # [B,C',H',W']
+        image_features = self.cnn(image_features) # [B, C', H', W']
         image_features = image_features.permute(0,2,3,1) # [B, H', W', C']
         image_features = self.Ic(image_features) # [B,H',W',E]
         image_features = image_features.permute(0,3,1,2) # [B, E, H', W']

@@ -4,7 +4,7 @@ from typing import Dict, Union
 
 from torch import optim
 from model import *
-from dataset import IAM, VNOnDB, RIMES, RIMESLine, Cinnamon
+from dataset import *
 
 MAPPING_NAME = {
     # optimizers

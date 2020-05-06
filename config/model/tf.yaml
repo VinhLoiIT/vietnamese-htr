@@ -12,3 +12,4 @@ model:
     use_encoder: false
     use_pe_text: false
     use_pe_image: false
+    use_stn: false

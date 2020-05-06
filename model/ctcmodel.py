@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from queue import PriorityQueue
 from typing import List, Dict, Tuple
 from .positional_encoding import PositionalEncoding1d, PositionalEncoding2d
+from .stn import STN
 
 __all__ = [
     'CTCModel', 'CTCModelTFEncoder', 'CTCModelRNN', 'CTCModelTF'
@@ -151,6 +152,11 @@ class CTCModel(nn.Module):
                 self.pool = self.concat
         self.vocab = vocab
 
+        if config.get('use_stn', False):
+            self.stn = STN(in_channels=3)
+        else:
+            self.stn = lambda x: x
+
     def concat(self, images: torch.Tensor) -> torch.Tensor:
         '''
         Shapes:
@@ -176,6 +182,7 @@ class CTCModel(nn.Module):
         --------
             - outputs: [B,S,V]
         '''
+        images = self.stn(images) # [B,C,H,W]
         images = self.cnn(images) # [B,C,H,W]
         images = images.transpose(-2,-1) # [B,C,W,H]
         images = self.pool(images) # [B,C,W,1]

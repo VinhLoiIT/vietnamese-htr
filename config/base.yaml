@@ -6,4 +6,5 @@ defaults:
     lr_scheduler: plateau
     batch_size: 16
     scale_height: 96
+    min_width: 288 # 96*3
     max_epochs: 50
