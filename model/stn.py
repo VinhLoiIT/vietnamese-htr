@@ -7,6 +7,7 @@ class STN(nn.Module):
     Spatial Transformer Network
     '''
     def __init__(self, in_channels):
+        super().__init__()
         self.localization = nn.Sequential(
             nn.Conv2d(in_channels, 8, kernel_size=7),
             nn.MaxPool2d(2, stride=2),
@@ -33,12 +34,13 @@ class STN(nn.Module):
         -------
             - images: [B,C,H,W]
         '''
-        xs = self.localization(x) # [B,C',H',W']
-        xs = xs.view(-1, 10 * 3 * 3)
-        theta = self.fc_loc(xs)
+        x = self.localization(images) # [B,C',H',W']
+        x = F.adaptive_avg_pool2d(x, (3, 3)) # [B,C',3,3]
+        x = x.view(-1, 10 * 3 * 3)
+        theta = self.fc_loc(x)
         theta = theta.view(-1, 2, 3)
 
-        grid = F.affine_grid(theta, x.size())
-        x = F.grid_sample(x, grid)
+        grid = F.affine_grid(theta, images.size(), align_corners=True)
+        images = F.grid_sample(images, grid, align_corners=True)
 
-        return x
+        return images
