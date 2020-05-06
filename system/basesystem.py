@@ -44,10 +44,8 @@ class BaseSystem:
         if checkpoint:
             checkpoint = torch.load(checkpoint, map_location=self.device)
             checkpoint_config = checkpoint['config']
-            self.logger.info('not none')
         else:
             checkpoint_config = None
-            self.logger.info('none')
 
         self.logger.info('Get vocabulary from dataset')
         vocab = self.prepare_vocab(config)
