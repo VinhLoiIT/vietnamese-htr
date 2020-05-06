@@ -88,6 +88,12 @@ class Config(object):
         with open(path, 'w') as file:
             yaml.dump(path, file)
 
+    def get(self, key, default_val):
+        if key in self.config.keys():
+            return self.config[key]
+        else:
+            return default_val
+
     def __getitem__(self, key):
         return self.config[key]
 

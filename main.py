@@ -5,7 +5,7 @@ from config import Config
 from typing import Dict
 
 def setup_train(args: Dict):
-    config = Config(args['base_config'], **args)
+    config = Config(args['config_path'], **args)
     # TODO: override config
     if args['loss'] == 'ce':
         system = CESystem
@@ -40,7 +40,6 @@ if __name__ == '__main__':
     train_parser = subparser.add_parser('train')
     train_parser.set_defaults(func=setup_train)
     train_parser.add_argument('config_path', type=str)
-    train_parser.add_argument('--base-config', type=str, default='./config/base.yaml')
     train_parser.add_argument('--comment', type=str, default='')
     train_parser.add_argument('--trainval', action='store_true', default=False)
     train_parser.add_argument('-c', '--checkpoint', type=str)
