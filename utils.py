@@ -15,6 +15,7 @@ import itertools
 import tqdm
 from nltk.util import ngrams, bigrams
 import collections
+from typing import Union
 
 def update_dict(d, u):
     for k, v in u.items():
@@ -25,9 +26,14 @@ def update_dict(d, u):
     return d
 
 class ScaleImageByHeight(object):
-    def __init__(self, target_height, min_width:int=None):
+    def __init__(self, target_height, min_width:Union[int, float] = 2.5):
         self.target_height = target_height
-        self.min_width = int(min_width or target_height * 2.5)
+        if isinstance(min_width, float):
+            self.min_width = int(target_height * min_width)
+        elif isinstance(min_width, int):
+            self.min_width = min_width
+        else:
+            raise ValueError('"min_width" should be int or float')
 
     def __call__(self, image):
         width, height = image.size
