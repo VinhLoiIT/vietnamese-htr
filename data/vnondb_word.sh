@@ -1,3 +1,5 @@
+#!/bin/bash
+
 train_word_tar_gz='1Rv-7lRdvWqKnRL-QTEUPhHMfIpMpaN1e'
 test_word_tar_gz='1t74UpNBTo2cJ6up4G2kmPlPSALwvMtVO'
 validation_word_tar_gz='1TUUNvVIaBU5lUPB4Fc6yJrk5_Jmyocg2'
@@ -9,7 +11,15 @@ function gdrive_download () {
   rm -rf /tmp/cookies.txt
 }
 
+mkdir -p VNOnDB/word
+cd VNOnDB/word
+
 gdrive_download $train_word_tar_gz train_word.tar.gz
 gdrive_download $test_word_tar_gz test_word.tar.gz
 gdrive_download $validation_word_tar_gz validation_word.tar.gz
 gdrive_download $csv_tar_gz csv.tar.gz
+
+tar -xvf train_word.tar.gz
+tar -xvf test_word.tar.gz
+tar -xvf validation_word.tar.gz
+tar -xvf csv.tar.gz
