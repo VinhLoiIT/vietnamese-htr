@@ -3,14 +3,14 @@ from typing import Dict, List, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from PIL import Image
 from torch.nn.utils.rnn import pack_padded_sequence
 
-from .basesystem import BaseSystem
-from metrics import CharacterErrorRate, Loss, Running, WordErrorRate
-from utils import CTCStringTransform, StringTransform
-
-from PIL import Image
 from config import Config
+from metrics import CharacterErrorRate, Loss, Running, WordErrorRate
+
+from .basesystem import BaseSystem
+from .utils import CTCStringTransform, StringTransform
 
 __all__ = [
     'CESystem',

@@ -3,13 +3,15 @@ from typing import Dict, List, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from .basesystem import BaseSystem
-from metrics import CharacterErrorRate, Running, WordErrorRate, Loss
-from utils import CTCStringTransform, StringTransform
 from PIL import Image
 from torchvision import transforms
+
 from config import Config
+from metrics import CharacterErrorRate, Loss, Running, WordErrorRate
+
+from .basesystem import BaseSystem
+from .utils import CTCStringTransform, StringTransform
+
 
 class CTCSystem(BaseSystem):
     def __init__(self):

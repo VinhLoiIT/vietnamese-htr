@@ -1,4 +1,3 @@
-import argparse
 import collections.abc
 import datetime
 import logging
@@ -10,19 +9,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ignite.contrib.handlers import TensorboardLogger
 from ignite.engine import Engine, Events
-from ignite.metrics import Loss
 from PIL import ImageOps
 from torch import optim
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
-from dataset import *
-from metrics import CharacterErrorRate, Running, WordErrorRate
-from model import *
-from utils import ScaleImageByHeight, StringTransform, update_dict
 from config import Config, initialize
+from dataset import *
 
-from .worker import TrainWorker, EvalWorker, TestWorker
+from .utils import ScaleImageByHeight
+from .worker import EvalWorker, TestWorker, TrainWorker
 
 __all__ = [
     'BaseSystem',
