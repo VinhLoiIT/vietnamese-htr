@@ -1,0 +1,15 @@
+dataset:
+  name: rimes
+  args:
+
+  train:
+    groundtruth_txt: data/RIMES/groundtruth_training_icdar2011.txt
+    image_folder: data/RIMES/trainingsnippets_icdar/training_WR
+
+  validation:
+    groundtruth_txt: data/RIMES/ground_truth_validation_icdar2011.txt
+    image_folder: data/RIMES/validationsnippets_icdar/testdataset_ICDAR
+
+  test:
+    groundtruth_txt: data/RIMES/grount_truth_test_icdar2011.txt
+    image_folder: data/RIMES/data_test
