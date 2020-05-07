@@ -43,6 +43,9 @@ class BaseSystem:
         else:
             checkpoint_config = None
 
+        self.logger.info('Config')
+        self.logger.info(config)
+
         self.logger.info('Get vocabulary from dataset')
         vocab = self.prepare_vocab(config)
 
