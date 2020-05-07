@@ -121,7 +121,7 @@ class BaseSystem:
 
         trainer.train(config['max_epochs'], checkpoint)
 
-    def test(self, checkpoint: Union[Dict, str]):
+    def test(self, checkpoint: Union[Dict, str], validation: bool = False):
         self.logger.info(f'Load configuration from checkpoint')
         if isinstance(checkpoint, str):
             checkpoint = torch.load(checkpoint, map_location=self.device)
@@ -131,8 +131,13 @@ class BaseSystem:
         vocab = self.prepare_vocab(config)
 
         self.logger.info('Create test loader')
+        if validation:
+            dataset = self.prepare_val_dataset(vocab, config)
+        else:
+            dataset = self.prepare_test_dataset(vocab, config)
+
         test_loader = DataLoader(
-            dataset=self.prepare_test_dataset(vocab, config),
+            dataset=dataset,
             batch_size=config['batch_size'],
             shuffle=True,
             collate_fn=lambda batch: CollateWrapper(batch),
