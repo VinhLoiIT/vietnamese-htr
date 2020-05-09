@@ -150,12 +150,14 @@ class CTCModel(nn.Module):
             else:
                 self.cnn.n_features *= height_feature
                 self.pool = self.concat
+        else:
+            self.pool = nn.Identity()
         self.vocab = vocab
 
         if config.get('use_stn', False):
             self.stn = STN(in_channels=3)
         else:
-            self.stn = lambda x: x
+            self.stn = nn.Identity()
 
     def concat(self, images: torch.Tensor) -> torch.Tensor:
         '''
