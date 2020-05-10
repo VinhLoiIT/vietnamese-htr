@@ -121,7 +121,7 @@ class BaseSystem:
 
         trainer.train(config['max_epochs'], checkpoint)
 
-    def test(self, checkpoint: Union[Dict, str], validation: bool = False):
+    def test(self, checkpoint: Union[Dict, str], validation: bool = False, beam_width: int = 1):
         self.logger.info(f'Load configuration from checkpoint')
         if isinstance(checkpoint, str):
             checkpoint = torch.load(checkpoint, map_location=self.device)
@@ -146,6 +146,7 @@ class BaseSystem:
         )
 
         self.logger.info('Create model')
+        config['model']['args']['beam_width'] = beam_width
         model = self.prepare_model(vocab, config).to(self.device)
         model.load_state_dict(checkpoint['model'])
 
@@ -155,7 +156,12 @@ class BaseSystem:
         # log_dir = self.prepare_log_dir(config)
         # tb_logger = TensorboardLogger(log_dir)
 
-        decode_func = model.greedy
+        if beam_width > 1:
+            self.logger.info(f'Use beam search algorithm with beam_width = {beam_width}')
+            decode_func = model.beamsearch
+        else:
+            self.logger.info('Use greedy search algorithm')
+            decode_func = model.greedy
         decode_input_tf = self.prepare_model_decode_input
         metric_input_tf = self.prepare_metric_inputs
 

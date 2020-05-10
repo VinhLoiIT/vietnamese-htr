@@ -18,7 +18,7 @@ def setup_test(args: Dict):
     system = CESystem if args['loss'] == 'ce' else CTCSystem
     del args['loss']
     checkpoint = args['checkpoint']
-    system().test(checkpoint, args['validation'])
+    system().test(checkpoint, args['validation'], args['beam_width'])
 
 
 if __name__ == '__main__':
@@ -47,6 +47,7 @@ if __name__ == '__main__':
     test_parser = subparser.add_parser('test')
     test_parser.set_defaults(func=setup_test)
     test_parser.add_argument('checkpoint', type=str)
+    test_parser.add_argument('--beam-width', type=int, default=1)
     test_parser.add_argument('--validation', action='store_true', default=False)
 
     args = parser.parse_args()

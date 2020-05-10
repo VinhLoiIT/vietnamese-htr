@@ -126,6 +126,7 @@ class ModelTF(Model):
         super().__init__(cnn, vocab)
         self.register_buffer('start_index', torch.tensor(vocab.SOS_IDX, dtype=torch.long))
         self.max_length = config['max_length']
+        self.beam_width = config.get('beam_width', None)
 
         self.Ic = nn.Linear(cnn.n_features, config['attn_size'])
         self.Vc = nn.Linear(vocab.size, config['attn_size'])
@@ -269,16 +270,14 @@ class ModelTF(Model):
         return output
 
 
-    def beamsearch(self, images: torch.Tensor, start: torch.Tensor, max_length: int, beam_width: int):
+    def beamsearch(self, images: torch.Tensor):
         '''
         Shapes:
         -------
             - images: [B,C,H,W]
-            - start: [B]
         Returns:
         --------
             - outputs: [B,T]
-            - lengths: [B]
         '''
 
         def decode_one_sample(image, start, max_length, beam_width):
@@ -341,12 +340,13 @@ class ModelTF(Model):
         images = self.embed_image(images) # [B,S,E]
         images.transpose_(0, 1) # [S,B,E]
 
-        predicts = start.unsqueeze_(-1)
+        starts = self.start_index.expand(batch_size).unsqueeze_(1)
+        predicts = starts.clone()
         decoded_batch = []
 
         # decoding goes sentence by sentence
         for idx in range(batch_size):
-            string_index = decode_one_sample(images[:, idx], start[idx], max_length, beam_width)
+            string_index = decode_one_sample(images[:, idx], starts[idx], self.max_length, self.beam_width)
             decoded_batch.append(string_index)
 
         return torch.nn.utils.rnn.pad_sequence(decoded_batch, batch_first=True)[:, 1:]
