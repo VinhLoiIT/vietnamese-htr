@@ -1,4 +1,5 @@
 defaults:
+    vocab: vnondb_vocab_flatten
     dataset: vnondb
     cnn: resnet
     model: tf
@@ -6,5 +7,5 @@ defaults:
     lr_scheduler: plateau
     batch_size: 16
     scale_height: 96
-    min_width: 288 # 96*3
+    min_width: 5.0
     max_epochs: 50

@@ -1,0 +1,5 @@
+vocab:
+  name: vnondb_vocab_flatten # to not conflict to vnondb dataset
+  args:
+    train_csv: data/VNOnDB/word/train_word.csv
+    flattening: flattening_1 # flattening_1 | flattening_2

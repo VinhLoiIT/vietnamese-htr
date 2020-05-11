@@ -41,6 +41,12 @@ MAPPING_NAME = {
     'rimes_line': RIMESLine,
     'cinnamon': Cinnamon,
 
+    # vocab
+    'vnondb_vocab': VNOnDBVocab,
+    'vnondb_vocab_flatten': VNOnDBVocabFlatten,
+    'vnondb_line_vocab': VNOnDBVocab,
+    'vnondb_line_vocab_flatten': VNOnDBVocabFlatten,
+
 }
 
 def initialize(config: Dict, *args, **kwargs):

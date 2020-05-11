@@ -1,0 +1,4 @@
+vocab:
+  name: vnondb_line_vocab # to not conflict to vnondb dataset
+  args:
+    train_csv: data/VNOnDB/line/train_line.csv
