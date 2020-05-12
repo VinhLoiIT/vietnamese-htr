@@ -2,8 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import numpy as np
 from queue import PriorityQueue
 from typing import List, Dict, Tuple
+from .feature_extractor import FE
 from .attention import get_attention
 from .positional_encoding import PositionalEncoding1d, PositionalEncoding2d, A2DPE
 from .stn import STN
@@ -122,7 +124,7 @@ class Model(nn.Module):
         pass
 
 class ModelTF(Model):
-    def __init__(self, cnn, vocab, **config):
+    def __init__(self, cnn: FE, vocab, **config):
         super().__init__(cnn, vocab)
         self.register_buffer('start_index', torch.tensor(vocab.SOS_IDX, dtype=torch.long))
         self.max_length = config['max_length']
@@ -163,6 +165,38 @@ class ModelTF(Model):
         else:
             self.pe_image = nn.Identity()
 
+        self.local_image_mask = config.get('local_image_mask', False)
+        if self.local_image_mask:
+            self.local_image_prev = config['local_image_prev']
+            self.local_image_next = config['local_image_next']
+
+        self.local_text_mask = config.get('local_text_mask', False)
+        if self.local_text_mask:
+            self.local_text_prev = config['local_text_prev']
+
+    def gen_image_mask(self, width: int, height: int) -> torch.Tensor:
+        '''
+        Returns:
+        --------
+            - mask: [S,S] where S = W*H
+        '''
+        mask = sum([np.eye(width, k=i) for i in range(-self.local_image_prev, self.local_image_next+1)])
+        mask = np.repeat(np.repeat(mask, height, axis=0), height, axis=1).astype(np.bool)
+        mask = torch.from_numpy(mask) # [S,S]
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+
+    def gen_text_mask(self, length: int) -> torch.Tensor:
+        '''
+        Returns:
+        --------
+            - mask: [T,T] where T = length
+        '''
+        mask = sum([np.eye(length, k=i) for i in range(-self.local_text_prev, 1)])
+        mask = torch.from_numpy(mask) # [T,T]
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+
     def embed_image(self, images):
         '''
         Shapes:
@@ -181,9 +215,10 @@ class ModelTF(Model):
         image_features = self.pe_image(image_features) # [B,E,H',W']
         batch_size, height, width = image_features.size(0), image_features.size(2), image_features.size(3)
         image_features = image_features.transpose(-2, -1) # [B,E,W',H']
+        mask = self.gen_image_mask(width, height).to(images.device) if self.local_image_mask else None
         image_features = image_features.reshape(batch_size, -1, width*height) # [B, E, S=W'xH']
         image_features = image_features.permute(2,0,1) # [S,B,E]
-        image_features = self.encoder(image_features) # [S,B,E]
+        image_features = self.encoder(image_features, mask) # [S,B,E]
         image_features = image_features.transpose(0, 1) # [B,S,E]
         return image_features
 
@@ -215,8 +250,10 @@ class ModelTF(Model):
         '''
         embed_image = embed_image.transpose(0, 1) # [S,B,E]
         embed_text = embed_text.transpose(0, 1) # [T,B,E]
-
-        attn_mask = nn.Transformer.generate_square_subsequent_mask(None, embed_text.size(0)).to(embed_text.device)
+        if self.local_text_mask:
+            attn_mask = self.gen_text_mask(embed_text.size(0)).to(embed_text.device)
+        else:
+            attn_mask = nn.Transformer.generate_square_subsequent_mask(None, embed_text.size(0)).to(embed_text.device)
         outputs = self.decoder(embed_text, embed_image, tgt_mask=attn_mask)
         outputs = outputs.transpose(0,1)
         outputs = self.character_distribution(outputs)
@@ -235,7 +272,10 @@ class ModelTF(Model):
         images.transpose_(0, 1) # [S,B,E]
 
         predicts = self.start_index.expand(batch_size).unsqueeze(-1)
-        attn_mask = nn.Transformer.generate_square_subsequent_mask(None, self.max_length).to(predicts.device)
+        if self.local_text_mask:
+            attn_mask = self.gen_text_mask(self.max_length).to(predicts.device)
+        else:
+            attn_mask = nn.Transformer.generate_square_subsequent_mask(None, self.max_length).to(predicts.device)
         end_flag = torch.zeros(batch_size, dtype=torch.bool)
         for t in range(self.max_length):
             targets = self.embed_text(predicts) # [B,T,E]
@@ -261,7 +301,10 @@ class ModelTF(Model):
         '''
         text = self.embed_text(predicts) # [B,T,E]
         text = text.transpose_(0,1) # [T,B,E]
-        attn_mask = nn.Transformer.generate_square_subsequent_mask(None, len(text)).to(text.device)
+        if self.local_text_mask:
+            attn_mask = self.gen_text_mask(len(text)).to(text.device)
+        else:
+            attn_mask = nn.Transformer.generate_square_subsequent_mask(None, len(text)).to(text.device)
         embedded_image = embedded_image.transpose(0, 1) # [S,B,E]
         output = self.decoder(text, embedded_image, tgt_mask=attn_mask) # [T,B,E]
         output = output.transpose_(0, 1) # [B,T,E]
