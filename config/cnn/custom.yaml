@@ -1,4 +1,4 @@
 cnn:
   name: custom
   args:
-    in_channels: 3
+    in_channel: 3
