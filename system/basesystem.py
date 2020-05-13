@@ -48,6 +48,8 @@ class BaseSystem:
 
         self.logger.info('Get vocabulary from dataset')
         vocab = self.prepare_vocab(config)
+        self.logger.debug(f'Vocab size = {vocab.size}')
+        self.logger.debug(f'Vocab = {vocab.alphabets}')
 
         self.logger.info('Create train loader')
         train_loader = DataLoader(

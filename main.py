@@ -23,7 +23,6 @@ def setup_test(args: Dict):
 
 if __name__ == '__main__':
 
-    logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser()
     parser.add_argument('loss', choices=['ctc', 'ce'])
@@ -51,6 +50,7 @@ if __name__ == '__main__':
     test_parser.add_argument('--validation', action='store_true', default=False)
 
     args = parser.parse_args()
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
     func = args.func
     args = vars(args)
     del args['func']
