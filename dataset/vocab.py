@@ -40,7 +40,9 @@ class Vocab(object):
         return self.char2int(self.BLANK)
 
     def __init__(self, add_blank: bool):
-        labels = self.load_labels().apply(self.process_label).apply(self.add_signals)
+        labels = self.load_labels().apply(self.process_label)
+        if not add_blank:
+            labels = labels.apply(self.add_signals)
         counter = labels.apply(lambda word: Counter(word))
         counter = counter.sum()
         counter.update({self.UNK: 0})
