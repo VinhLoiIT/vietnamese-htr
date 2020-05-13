@@ -46,6 +46,7 @@ MAPPING_NAME = {
     'vnondb_vocab_flatten': VNOnDBVocabFlatten,
     'vnondb_line_vocab': VNOnDBVocab,
     'vnondb_line_vocab_flatten': VNOnDBVocabFlatten,
+    'cinnamon_vocab': CinnamonVocab,
 
 }
 

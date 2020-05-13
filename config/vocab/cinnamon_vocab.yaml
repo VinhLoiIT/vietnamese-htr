@@ -1,0 +1,4 @@
+vocab:
+  name: cinnamon_vocab
+  args:
+    train_csv: data/Cinnamon/train.csv

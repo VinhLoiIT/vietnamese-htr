@@ -2,6 +2,9 @@ dataset:
   name: cinnamon
   args:
 
+  scale_height: 96
+  min_width: 19.0
+
   train:
     csv: data/Cinnamon/train.csv
     image_folder: data/Cinnamon/0916_Data Samples 2
