@@ -108,6 +108,7 @@ data/*
 ckpt/*
 runs/*
 !data/*.sh
+!data/*.py
 
 # VSCode
 .vscode/

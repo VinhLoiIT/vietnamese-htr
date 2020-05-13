@@ -6,7 +6,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 import pandas as pd
-from .vocab import CollateWrapper, Vocab
+from .vocab import Vocab
 
 
 class RIMESVocab(Vocab):
@@ -63,55 +63,3 @@ class RIMESLineVocab(Vocab):
         '''
         train_df = pd.read_csv('data/RIMES_Line/train.csv', sep='\t')
         return train_df['label'].astype(str)
-
-
-class RIMESLine(Dataset):
-    def __init__(self, vocab, root_folder, csv, image_transform=None):
-        self.vocab = vocab
-        self.image_transform = image_transform
-
-        self.df = pd.read_csv(csv, sep='\t', keep_default_na=False)
-        self.df['filename'] = self.df['filename'].apply(lambda path: os.path.join(root_folder, path))
-        self.df['label'] = self.df['label'].apply(self.vocab.process_label).apply(self.vocab.add_signals)
-
-    def __len__(self):
-        return len(self.df)
-
-    def __getitem__(self, idx):
-        image_path, label, bottom, top, right, left = self.df.iloc[idx]
-        image = Image.open(image_path).convert('L')
-        image = image.crop((left, top, right, bottom))
-
-        if self.image_transform:
-            image = self.image_transform(image)
-
-        label = torch.tensor(list(map(self.vocab.char2int, label)))
-
-        return image, label
-
-
-if __name__ == '__main__':
-
-    import torchvision.transforms as transforms
-    from torch.utils.data import DataLoader
-
-    transform = transforms.Compose([
-        transforms.Grayscale(3),
-        transforms.ToTensor(),
-    ])
-
-    # dataset = RIMES('./data/RIMES/data_test', './data/RIMES/grount_truth_test_icdar2011.txt', transform)
-    dataset = RIMES('./data/RIMES/trainingsnippets_icdar/training_WR', './data/RIMES/groundtruth_training_icdar2011.txt', transform)
-    # dataset = RIMES('./data/RIMES/validationsnippets_icdar/testdataset_ICDAR', './data/RIMES/ground_truth_validation_icdar2011.txt', transform)
-    print(len(dataset))
-    print(dataset.vocab.size)
-    print(dataset.vocab.alphabets)
-    print(dataset.vocab.class_weight)
-
-    loader = DataLoader(dataset, min(8, len(dataset)), False,
-                        collate_fn=lambda batch: CollateWrapper(batch))
-    batch = next(iter(loader))
-    print(batch.images)
-    print(batch.sizes)
-    print(batch.labels)
-    print(batch.lengths)

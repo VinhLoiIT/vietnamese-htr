@@ -1,16 +1,15 @@
 dataset:
   name: vnondb_line
   args:
-    flatten_type:  # flattening_1, flattening_2, or leave blank
 
   train:
-    csv: data/VNOnDB/line/train_line.csv
+    csv: data/VNOnDB/line/train_line_new.csv
     image_folder: data/VNOnDB/line/train_line
 
   validation:
-    csv: data/VNOnDB/line/validation_line.csv
+    csv: data/VNOnDB/line/validation_line_new.csv
     image_folder: data/VNOnDB/line/validation_line
 
   test:
-    csv: data/VNOnDB/line/test_line.csv
+    csv: data/VNOnDB/line/test_line_new.csv
     image_folder: data/VNOnDB/line/test_line

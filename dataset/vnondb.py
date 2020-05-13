@@ -234,35 +234,6 @@ class Flattening_2(Flattening):
                     accent_word[-1] = accent_letter
         return accent_word
 
-class VNOnDB(Dataset):
-
-    def __init__(self,
-        vocab: Vocab,
-        image_folder: str,
-        csv: str,
-        image_transform=None,
-        flatten_type: str=None,
-        add_blank: bool=False,
-    ):
-        self.vocab = vocab
-        self.image_transform = image_transform
-        self.df = pd.read_csv(csv, sep='\t', keep_default_na=False, index_col=0)
-        self.df['id'] = self.df['id'].apply(lambda id: os.path.join(image_folder, id+'.png'))
-        self.df['label'] = self.df['label'].apply(self.vocab.process_label).apply(self.vocab.add_signals)
-
-    def __len__(self):
-        return len(self.df)
-    
-    def __getitem__(self, idx):
-        image_path = self.df['id'][idx]
-        image = Image.open(image_path).convert('L')
-        
-        if self.image_transform:
-            image = self.image_transform(image)
-        
-        label = torch.tensor(list(map(self.vocab.char2int, self.df['label'][idx])))
-            
-        return image, label
 
 if __name__ == '__main__':
 

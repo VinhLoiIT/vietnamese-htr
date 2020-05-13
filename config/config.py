@@ -35,11 +35,11 @@ MAPPING_NAME = {
     'ctc_rnn': CTCModelRNN,
 
     # dataset
-    'vnondb': VNOnDB,
-    'vnondb_line': VNOnDB,
+    'vnondb': HTRDataset,
+    'vnondb_line': HTRDataset,
     'rimes': RIMES,
-    'rimes_line': RIMESLine,
-    'cinnamon': Cinnamon,
+    'rimes_line': HTRDataset,
+    'cinnamon': HTRDataset,
 
     # vocab
     'vnondb_vocab': VNOnDBVocab,

@@ -1,0 +1,15 @@
+dataset:
+  name: rimes_line
+  args:
+
+  train:
+    csv: data/RIMES_Line/train.csv
+    image_folder: data/RIMES_Line/train
+
+  validation:
+    csv: data/RIMES_Line/val.csv
+    image_folder: data/RIMES_Line/val
+
+  test:
+    csv: data/RIMES_Line/test.csv
+    image_folder: data/RIMES_Line/test
