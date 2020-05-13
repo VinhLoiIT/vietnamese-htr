@@ -13,10 +13,3 @@ model:
     use_pe_text: false
     use_pe_image: false
     use_stn: false
-
-    local_image_mask: false
-    local_image_prev: 5
-    local_image_next: 5
-
-    local_text_mask: false
-    local_text_prev: 7
