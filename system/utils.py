@@ -41,8 +41,13 @@ class ScaleImageByHeight(object):
         scaled_width = int(width * factor)
         resized_image = image.resize((scaled_width, self.target_height), Image.NEAREST)
         image_width = scaled_width if scaled_width > self.min_width else self.min_width
-        image = Image.new('L', (self.min_width, self.target_height))
-        image.paste(resized_image)
+        if resized_image.size[0] > self.min_width:
+            image = resized_image.resize((self.min_width, self.target_height))
+        elif resized_image.size[0] < self.min_width:
+            image = Image.new('L', (self.min_width, self.target_height))
+            image.paste(resized_image)
+        else:
+            image = resized_image
         return image
     
 class HandcraftFeature(object):
