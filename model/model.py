@@ -163,7 +163,7 @@ class ModelTF(Model):
         else:
             self.pe_image = nn.Identity()
 
-    def embed_image(self, images):
+    def embed_image(self, images: torch.Tensor) -> torch.Tensor:
         '''
         Shapes:
         -------
@@ -179,15 +179,15 @@ class ModelTF(Model):
         image_features = self.Ic(image_features) # [B,H',W',E]
         image_features = image_features.permute(0,3,1,2) # [B, E, H', W']
         image_features = self.pe_image(image_features) # [B,E,H',W']
-        batch_size, height, width = image_features.size(0), image_features.size(2), image_features.size(3)
+        B, E, H, W = image_features.shape
         image_features = image_features.transpose(-2, -1) # [B,E,W',H']
-        image_features = image_features.reshape(batch_size, -1, width*height) # [B, E, S=W'xH']
+        image_features = image_features.reshape(B, E, W*H) # [B, E, S=W'xH']
         image_features = image_features.permute(2,0,1) # [S,B,E]
         image_features = self.encoder(image_features) # [S,B,E]
         image_features = image_features.transpose(0, 1) # [B,S,E]
         return image_features
 
-    def embed_text(self, text):
+    def embed_text(self, text: torch.Tensor) -> torch.Tensor:
         '''
         Shapes:
         -------
@@ -202,7 +202,7 @@ class ModelTF(Model):
         text = self.pe_text(text)
         return text
 
-    def _forward_decode(self, embed_image, embed_text):
+    def _forward_decode(self, embed_image: torch.Tensor, embed_text: torch.Tensor) -> torch.Tensor:
         '''
         Shapes:
         -------
