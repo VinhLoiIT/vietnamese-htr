@@ -2,6 +2,9 @@ dataset:
   name: vnondb_line
   args:
 
+  scale_height: 96
+  min_width: 36.0
+
   train:
     csv: data/VNOnDB/line/train_line_new.csv
     image_folder: data/VNOnDB/line/train_line

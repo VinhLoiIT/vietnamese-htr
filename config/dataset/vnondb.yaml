@@ -2,6 +2,9 @@ dataset:
   name: vnondb
   args:
 
+  scale_height: 96
+  min_width: 7.0
+
   train:
     csv: data/VNOnDB/word/train_word_new.csv
     image_folder: data/VNOnDB/word/train_word

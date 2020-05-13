@@ -244,7 +244,8 @@ class BaseSystem:
     def prepare_train_image_transform(self, config):
         transform = transforms.Compose([
             ImageOps.invert,
-            ScaleImageByHeight(config['scale_height'], config.get('min_width', None)),
+            ScaleImageByHeight(config['dataset']['scale_height'],
+                               config['dataset']['min_width']),
             transforms.Grayscale(3),
             transforms.RandomRotation(10),
             transforms.ToTensor(),
@@ -256,7 +257,8 @@ class BaseSystem:
     def prepare_test_image_transform(self, config):
         transform = transforms.Compose([
             ImageOps.invert,
-            ScaleImageByHeight(config['scale_height'], config.get('min_width', None)),
+            ScaleImageByHeight(config['dataset']['scale_height'],
+                               config['dataset']['min_width']),
             transforms.Grayscale(3),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],

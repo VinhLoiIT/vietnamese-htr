@@ -6,6 +6,4 @@ defaults:
     optimizer: adam
     lr_scheduler: plateau
     batch_size: 16
-    scale_height: 96
-    min_width: 5.0
     max_epochs: 50
