@@ -197,19 +197,7 @@ class BaseSystem:
         return model
 
     def prepare_vocab(self, config):
-        # backward compatible
-        if config.get('vocab', None):
-            vocab = initialize(config['vocab'], add_blank=self.is_add_blank())
-        else:
-            if config['dataset']['name'] in ['vnondb', 'vnondb_line']:
-                vocab = VNOnDBVocab(config['dataset']['train']['csv'], self.is_add_blank())
-                #TODO: add flattening vocab
-            elif config['dataset']['name'] == 'rimes':
-                vocab = RIMESVocab(self.is_add_blank())
-            elif config['dataset']['name'] == 'rimes_line':
-                vocab = RIMESLineVocab(self.is_add_blank())
-            elif config['dataset']['name'] == 'cinnamon':
-                vocab = CinnamonVocab(config['dataset']['train']['csv'], self.is_add_blank())
+        vocab = initialize(config['vocab'], add_blank=self.is_add_blank())
         return vocab
 
     def prepare_model_forward_inputs(self, batch):
@@ -247,7 +235,6 @@ class BaseSystem:
             ScaleImageByHeight(config['dataset']['scale_height'],
                                config['dataset']['min_width']),
             transforms.Grayscale(3),
-            transforms.RandomRotation(10),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225]),
