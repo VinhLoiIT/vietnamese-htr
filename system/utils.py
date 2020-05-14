@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 from skimage.feature import hog
 from skimage import exposure
+from skimage.morphology import diamond, dilation
 import tqdm
 import pandas as pd
 import re
@@ -49,6 +50,18 @@ class ScaleImageByHeight(object):
         else:
             image = resized_image
         return image
+
+
+class Dilation(object):
+    def __init__(radius: int):
+        self.radius = radius
+
+    def __call__(self, image):
+        image = np.asarray(image)
+        image = dilation(image, selem=diamond(self.radius))
+        image = Image.fromarray(np.uint8(image))
+        return image
+
     
 class HandcraftFeature(object):
     def __init__(self, orientations=8):
