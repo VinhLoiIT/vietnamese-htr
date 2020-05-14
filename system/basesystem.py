@@ -103,7 +103,6 @@ class BaseSystem:
 
         evaluator = EvalWorker(
             model,
-            val_loader,
             val_metrics,
             decode_func,
             decode_input_tf,
@@ -115,13 +114,13 @@ class BaseSystem:
         trainer = TrainWorker(
             model, loss, train_metrics,
             optimizer, lr_scheduler,
-            train_loader, loss_input_tf,
+            loss_input_tf,
             forward_input_tf, save_metric_best,
             checkpoint_dir, config.config,
-            evaluator, tb_logger
+            tb_logger
         )
 
-        trainer.train(config['max_epochs'], checkpoint)
+        trainer.train(train_loader, config['max_epochs'], evaluator, val_loader, checkpoint)
 
     def test(self, checkpoint: Union[Dict, str], validation: bool = False, beam_width: int = 1):
         self.logger.info(f'Load configuration from checkpoint')
@@ -169,7 +168,6 @@ class BaseSystem:
 
         tester = TestWorker(
             model,
-            test_loader,
             test_metrics,
             decode_func,
             decode_input_tf,
@@ -177,7 +175,7 @@ class BaseSystem:
             None)
             # tb_logger)
 
-        metrics = tester.eval()
+        metrics = tester.eval(test_loader)
         self.logger.info('Test done. Metrics:')
         self.logger.info(metrics)
 
@@ -263,6 +261,7 @@ class BaseSystem:
         dataset = initialize(config['dataset'],
                              image_transform=transform,
                              vocab=vocab,
+                             subset=config['debug'],
                              **config['dataset']['train'])
         return dataset
 
@@ -271,6 +270,7 @@ class BaseSystem:
         dataset = initialize(config['dataset'],
                              image_transform=transform,
                              vocab=vocab,
+                             subset=config['debug'],
                              **config['dataset']['validation'])
         return dataset
 
@@ -279,6 +279,7 @@ class BaseSystem:
         dataset = initialize(config['dataset'],
                              image_transform=transform,
                              vocab=vocab,
+                             subset=config['debug'],
                              **config['dataset']['test'])
         return dataset
 

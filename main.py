@@ -51,6 +51,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+    logging.getLogger('PIL').setLevel(level=logging.INFO)
     func = args.func
     args = vars(args)
     del args['func']

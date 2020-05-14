@@ -11,12 +11,15 @@ class HTRDataset(torch.utils.data.Dataset):
         image_folder: str,
         csv: str,
         image_transform,
+        subset: bool
     ):
         self.vocab = vocab
         self.image_transform = image_transform
         self.df = pd.read_csv(csv, sep='\t', keep_default_na=False)
         self.df.iloc[:, 0] = self.df.iloc[:, 0].apply(lambda filename: os.path.join(image_folder, filename))
         self.df.iloc[:, 1] = self.df.iloc[:, 1].apply(self.vocab.process_label).apply(self.vocab.add_signals)
+        if subset:
+            self.df = self.df.sample(frac=0.1, random_state=0, axis=0)
 
     def __len__(self):
         return len(self.df)

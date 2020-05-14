@@ -45,13 +45,11 @@ class TrainWorker(Worker):
         metrics: Dict,
         optimizer: optim.Optimizer,
         lr_scheduler: optim.lr_scheduler._LRScheduler,
-        data_loader: DataLoader,
         loss_input_tf: Callable,
         forward_input_tf: Callable,
         save_metric_best: str,
         checkpoint_dir: str,
         config: Mapping,
-        evaluator: Worker = None,
         tb_logger: TensorboardLogger = None
     ):
         super().__init__(tb_logger)
@@ -59,9 +57,7 @@ class TrainWorker(Worker):
         self.loss_fn = loss
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
-        self.data_loader = data_loader
         self.tb_logger = tb_logger
-        self.evaluator = evaluator
         self.checkpoint_dir = checkpoint_dir
         self.save_metric_best = save_metric_best
         self.config = config
@@ -81,53 +77,86 @@ class TrainWorker(Worker):
         self.optimizer.step()
         return loss_input
 
-    def resume(self, checkpoint: Mapping):
+    def resume(self, data_loader, checkpoint: Mapping):
         self.logger.info('Resuming from checkpoint')
         self.model.load_state_dict(checkpoint['model'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
         self._engine.load_state_dict(checkpoint['trainer'])
-        state = self._engine.run(self.data_loader, None, seed=None)
+        state = self._engine.run(data_loader, None, seed=None)
         return state
 
-    def train(self, max_epochs: int, checkpoint: Mapping=None, debug:bool = False):
-        if self.evaluator:
-            self._engine.add_event_handler(Events.EPOCH_COMPLETED, self.validate)
-        
+    def train(self,
+        train_loader: DataLoader,
+        max_epochs: int,
+        evaluator: 'EvalWorker',
+        val_loader: DataLoader=None,
+        eval_train: bool = False,
+        checkpoint: Mapping=None,
+    ):
+        self._engine.add_event_handler(Events.EPOCH_COMPLETED,
+                                       self.validate,
+                                       evaluator,
+                                       train_loader if eval_train else None,
+                                       val_loader)
+
         if self.tb_logger:
             self.tb_logger.attach(
                 self._engine,
                 event_name=Events.ITERATION_COMPLETED,
                 log_handler=OutputHandler(tag='Train', metric_names='all'),
             )
-            if self.evaluator:
-                tb_val_handler = OutputHandler(
-                    tag='Validation',
-                    metric_names='all',
-                    global_step_transform=global_step_from_engine(self._engine))
-                self.tb_logger.attach(
-                    self.evaluator._engine,
-                    event_name=Events.EPOCH_COMPLETED,
-                    log_handler=tb_val_handler)
 
         if checkpoint:
-            state = self.resume(checkpoint)
+            state = self.resume(train_loader, checkpoint)
         else:
-            max_epochs = 5 if debug else max_epochs
             self.logger.info('Start training')
-            state = self._engine.run(self.data_loader, max_epochs, seed=self.seed)
+            state = self._engine.run(train_loader, max_epochs, seed=self.seed)
         self.logger.info('Training done. Metrics:')
         self.logger.info(state.metrics)
+        return state.metrics
 
-    def validate(self, engine: Engine) -> None:
-        val_metrics: Dict = self.evaluator.eval()
-        is_better = self.lr_scheduler.is_better(
-            val_metrics[self.save_metric_best],
-            self.lr_scheduler.best)
-        self.lr_scheduler.step(val_metrics[self.save_metric_best])
+    def validate(self, engine: Engine,
+        evaluator: 'EvalWorker',
+        train_loader: DataLoader,
+        val_loader: DataLoader
+    ):
+        if train_loader:
+            train_metrics: Dict = evaluator.eval(train_loader)
+        else:
+            train_metrics = None
+
+        if val_loader:
+            val_metrics: Dict = evaluator.eval(val_loader)
+        else:
+            val_metrics = None
+        
+        if val_metrics:
+            is_better = self.lr_scheduler.is_better(
+                val_metrics[self.save_metric_best],
+                self.lr_scheduler.best)
+            self.lr_scheduler.step(val_metrics[self.save_metric_best])
+        elif train_metrics:
+            is_better = self.lr_scheduler.is_better(
+                train_metrics[self.save_metric_best],
+                self.lr_scheduler.best)
+            self.lr_scheduler.step(train_metrics[self.save_metric_best])
+        else:
+            is_better = True
+
         self.save_checkpoint(os.path.join(self.checkpoint_dir, 'weights.pt'))
         if is_better:
             self.save_checkpoint(os.path.join(self.checkpoint_dir, 'BEST.pt'))
+
+        if self.tb_logger:
+            if train_metrics:
+                self._log_tb_metrics('Train', engine.state.epoch, train_metrics)
+            if val_metrics:
+                self._log_tb_metrics('Validation', engine.state.epoch, val_metrics)
+
+    def _log_tb_metrics(self, tag: str, step: int, metrics: Dict):
+        for key, value in metrics.items():
+            self.tb_logger.writer.add_scalar(f'{tag}/{key}', value, step)
 
     def save_checkpoint(self, path: str) -> None:
         to_save = {
@@ -144,7 +173,6 @@ class TrainWorker(Worker):
 class EvalWorker(Worker):
     def __init__(self,
         model: nn.Module,
-        data_loader: DataLoader,
         metrics: Dict,
         decode_func: Callable,
         decode_input_tf: Callable,
@@ -155,7 +183,6 @@ class EvalWorker(Worker):
     ):
         super().__init__(tb_logger)
         self.model = model
-        self.data_loader = data_loader
         self.decode_func = decode_func
         self.decode_input_tf = decode_input_tf
         self.forward_input_tf = forward_input_tf
@@ -163,8 +190,8 @@ class EvalWorker(Worker):
         self.metric_input_tf = metric_input_tf
         self._attach_metrics(metrics)
 
-    def eval(self) -> Dict:
-        state = self._engine.run(self.data_loader)
+    def eval(self, data_loader) -> Dict:
+        state = self._engine.run(data_loader)
         return state.metrics
 
     @torch.no_grad()
@@ -179,14 +206,13 @@ class EvalWorker(Worker):
 class TestWorker(EvalWorker):
     def __init__(self,
         model: nn.Module,
-        data_loader: DataLoader,
         metrics: Dict,
         decode_func: Callable,
         decode_input_tf: Callable,
         metric_input_tf: Callable,
         tb_logger: TensorboardLogger,
     ):
-        super().__init__(model, data_loader, metrics, decode_func, decode_input_tf, None, None, metric_input_tf, tb_logger)
+        super().__init__(model, metrics, decode_func, decode_input_tf, None, None, metric_input_tf, tb_logger)
 
     @torch.no_grad()
     def _step(self, evaluator: Engine, batch):
