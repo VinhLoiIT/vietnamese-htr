@@ -113,5 +113,5 @@ runs/*
 # VSCode
 .vscode/
 
-# mics images
-mics/
+# misc images
+misc/

@@ -14,8 +14,13 @@ class EditDistance(Metric):
     Calculates the EditDistance.
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, logfile=None, output_transform=lambda x: x, device=None):
+    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_distinguish_letter=True):
         super().__init__(output_transform, device)
+        self._ed = 0.0
+        self._num_references = 0 # Global ed: number characters in CER (or words in WER) of target
+                                # Mean normalized ed: number examples
+        self.is_global_ed = is_global_ed
+        self.is_distinguish_letter = is_distinguish_letter
         self.log = logfile
 
         if self.log is not None:
@@ -28,14 +33,14 @@ class EditDistance(Metric):
 
     def compute_distance(self, predict: str, target: str):
         '''
-        Compute edit distance between two strings
+        Compute edit distance between two strings and number reference (len(target))
         '''
         pass
 
     @reinit__is_reduced
     def reset(self) -> None:
         self._ed = 0.0
-        self._num_examples = 0
+        self._num_references = 0
 
     @reinit__is_reduced
     def update(self, output) -> None:
@@ -48,34 +53,38 @@ class EditDistance(Metric):
         batch_size = len(y)
 
         for i, (predict, target) in enumerate(zip(y_pred, y)):
-            distance = self.compute_distance(predict, target)
+            if not self.is_distinguish_letter:
+                predict, target = predict.lower(), target.lower()
+            distance, num_reference = self.compute_distance(predict, target)
             if self.log is not None:
                 self.log.write(f'{"".join(predict)}|{"".join(target)}|{distance}\n')
-            self._ed += distance
+            if self.is_global_ed:
+                self._ed += distance
+                self._num_references += num_reference
+            else:
+                self._ed += distance / num_reference
+                self._num_references += 1
 
-        self._num_examples += batch_size
-
-    @sync_all_reduce("_ed", "_num_examples")
+    @sync_all_reduce("_ed", "_num_references")
     def compute(self):
-        if self._num_examples == 0:
+        if self._num_references == 0:
             raise NotComputableError('EditDistance must have at least one example before it can be computed.')
-        return self._ed / self._num_examples
+        return self._ed / self._num_references
 
 class CharacterErrorRate(EditDistance):
     '''
     Calculates the CharacterErrorRate.
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, logfile=None, output_transform=lambda x: x, device=None):
-        super().__init__(logfile, output_transform, device)
+    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_distinguish_letter=True):
+        super().__init__(logfile, output_transform, device, is_global_ed, is_distinguish_letter)
 
     def compute_distance(self, predict: str, target: str):
         '''
         Compute edit distance between two strings
         '''
         distance = ed.distance(predict, target)
-        distance = float(distance) / len(target)
-        return distance
+        return distance, len(target)
 
 class WordErrorRate(EditDistance):
     '''
@@ -84,8 +93,8 @@ class WordErrorRate(EditDistance):
     - When recognize at word-level, this metric is (1 - Accuracy)
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, logfile=None, output_transform=lambda x: x, device=None):
-        super().__init__(logfile, output_transform, device)
+    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_distinguish_letter=True):
+        super().__init__(logfile, output_transform, device, is_global_ed, is_distinguish_letter)
 
     def compute_distance(self, predict: str, target: str):
         '''
@@ -94,5 +103,4 @@ class WordErrorRate(EditDistance):
         predict = ''.join(predict).split(' ')
         target = ''.join(target).split(' ')
         distance = ed.distance(predict, target)
-        distance = float(distance) / len(target)
-        return distance
+        return distance, len(target)
