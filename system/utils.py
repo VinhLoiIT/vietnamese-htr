@@ -53,7 +53,7 @@ class ScaleImageByHeight(object):
 
 
 class Dilation(object):
-    def __init__(radius: int):
+    def __init__(self, radius: int):
         self.radius = radius
 
     def __call__(self, image):
