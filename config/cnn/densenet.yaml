@@ -1,5 +1,6 @@
 cnn:
   name: densenet
   args:
-    version: densenet161
-    memory_efficient: True
+    version: custom
+    pretrained: False
+    memory_efficient: False
