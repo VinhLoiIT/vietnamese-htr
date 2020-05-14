@@ -17,12 +17,16 @@ class STN(nn.Module):
             nn.ReLU(True)
         )
 
+        self.pool = nn.AdaptiveAvgPool2d((3,3))
+
         # Regressor for the 3 * 2 affine matrix
         self.fc_loc = nn.Sequential(
             nn.Linear(10 * 3 * 3, 32),
             nn.ReLU(True),
             nn.Linear(32, 3 * 2)
         )
+
+        self._init_weights()
         
     def _init_weights(self):
         self.fc_loc[2].weight.data.zero_()
@@ -35,7 +39,7 @@ class STN(nn.Module):
             - images: [B,C,H,W]
         '''
         x = self.localization(images) # [B,C',H',W']
-        x = F.adaptive_avg_pool2d(x, (3, 3)) # [B,C',3,3]
+        x = self.pool(x) # [B,C',3,3]
         x = x.view(-1, 10 * 3 * 3)
         theta = self.fc_loc(x)
         theta = theta.view(-1, 2, 3)
