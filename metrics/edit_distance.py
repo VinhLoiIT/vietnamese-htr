@@ -14,13 +14,13 @@ class EditDistance(Metric):
     Calculates the EditDistance.
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_distinguish_letter=True):
+    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_indistinguish_letter=True):
         super().__init__(output_transform, device)
         self._ed = 0.0
         self._num_references = 0 # Global ed: number characters in CER (or words in WER) of target
                                 # Mean normalized ed: number examples
         self.is_global_ed = is_global_ed
-        self.is_distinguish_letter = is_distinguish_letter
+        self.is_indistinguish_letter = is_indistinguish_letter
         self.log = logfile
 
         if self.log is not None:
@@ -53,7 +53,7 @@ class EditDistance(Metric):
         batch_size = len(y)
 
         for i, (predict, target) in enumerate(zip(y_pred, y)):
-            if not self.is_distinguish_letter:
+            if self.is_indistinguish_letter:
                 predict, target = predict.lower(), target.lower()
             distance, num_reference = self.compute_distance(predict, target)
             if self.log is not None:
@@ -76,8 +76,8 @@ class CharacterErrorRate(EditDistance):
     Calculates the CharacterErrorRate.
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_distinguish_letter=True):
-        super().__init__(logfile, output_transform, device, is_global_ed, is_distinguish_letter)
+    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_indistinguish_letter=False):
+        super().__init__(logfile, output_transform, device, is_global_ed, is_indistinguish_letter)
 
     def compute_distance(self, predict: str, target: str):
         '''
@@ -93,8 +93,8 @@ class WordErrorRate(EditDistance):
     - When recognize at word-level, this metric is (1 - Accuracy)
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_distinguish_letter=True):
-        super().__init__(logfile, output_transform, device, is_global_ed, is_distinguish_letter)
+    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_indistinguish_letter=True):
+        super().__init__(logfile, output_transform, device, is_global_ed, is_indistinguish_letter)
 
     def compute_distance(self, predict: str, target: str):
         '''

@@ -5,20 +5,18 @@ from config import Config
 from typing import Dict
 
 def setup_train(args: Dict):
+    system = CESystem if args.pop('loss', 'ce') == 'ce' else CTCSystem
     config = Config(args['config_path'], **args)
     # TODO: override config
-    if args['loss'] == 'ce':
-        system = CESystem
-    else:
-        system = CTCSystem
-    del args['loss']
     system().train(config, args['checkpoint'])
 
 def setup_test(args: Dict):
-    system = CESystem if args['loss'] == 'ce' else CTCSystem
-    del args['loss']
+    system = CESystem if args.pop('loss', 'ce') == 'ce' else CTCSystem
     checkpoint = args['checkpoint']
-    system().test(checkpoint, args['validation'], args['beam_width'])
+    system().test(checkpoint,
+                  args['validation'],
+                  args['beam_width'],
+                  args['indistinguish'])
 
 
 if __name__ == '__main__':
@@ -48,6 +46,7 @@ if __name__ == '__main__':
     test_parser.add_argument('checkpoint', type=str)
     test_parser.add_argument('--beam-width', type=int, default=1)
     test_parser.add_argument('--validation', action='store_true', default=False)
+    test_parser.add_argument('--indistinguish', action='store_true', default=False)
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)

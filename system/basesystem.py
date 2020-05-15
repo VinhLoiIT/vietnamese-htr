@@ -122,7 +122,11 @@ class BaseSystem:
 
         trainer.train(train_loader, config['max_epochs'], evaluator, val_loader, checkpoint)
 
-    def test(self, checkpoint: Union[Dict, str], validation: bool = False, beam_width: int = 1):
+    def test(self, checkpoint: Union[Dict, str],
+        validation: bool = False,
+        beam_width: int = 1,
+        indistinguish: bool = False,
+    ):
         self.logger.info(f'Load configuration from checkpoint')
         if isinstance(checkpoint, str):
             checkpoint = torch.load(checkpoint, map_location=self.device)
@@ -153,8 +157,10 @@ class BaseSystem:
         for param in model.parameters():
             param.requires_grad = False
 
-        self.logger.info('Create test metrics')
-        test_metrics = self.prepare_test_metrics(vocab)
+        self.logger.info('Create test metrics - {}'.format(
+            'case insensitive' if indistinguish else 'case sensitive'
+        ))
+        test_metrics = self.prepare_test_metrics(vocab, indistinguish)
 
         # log_dir = self.prepare_log_dir(config)
         # tb_logger = TensorboardLogger(log_dir)
@@ -214,7 +220,7 @@ class BaseSystem:
     def prepare_metric_inputs(self, decoded, batch):
         return decoded, batch.labels[:, 1:].to(self.device)
 
-    def prepare_test_metrics(self) -> Dict:
+    def prepare_test_metrics(self, vocab, indistinguish: bool) -> Dict:
         pass
 
     def prepare_val_metrics(self, vocab, loss) -> Dict:

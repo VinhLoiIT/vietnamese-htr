@@ -41,13 +41,15 @@ class CTCSystem(BaseSystem):
         }
         return train_metrics
 
-    def prepare_test_metrics(self, vocab) -> Dict:
+    def prepare_test_metrics(self, vocab, indistinguish: bool) -> Dict:
         string_tf = StringTransform(vocab, batch_first=True)
         ctc_tf = CTCStringTransform(vocab, batch_first=True)
         out_tf = lambda metric_inputs: (ctc_tf(metric_inputs[0]), string_tf(metric_inputs[1]))
         metrics = {
-            'CER': Running(CharacterErrorRate(logfile='ctc_cer.txt', output_transform=lambda outputs: out_tf(outputs[1]))),
-            'WER': Running(WordErrorRate(output_transform=lambda outputs: out_tf(outputs[1]))),
+            'CER': Running(CharacterErrorRate(output_transform=lambda outputs: out_tf(outputs[1]),
+                                              is_indistinguish_letter=indistinguish)),
+            'WER': Running(WordErrorRate(output_transform=lambda outputs: out_tf(outputs[1]),
+                                         is_indistinguish_letter=indistinguish)),
         }
         return metrics
 

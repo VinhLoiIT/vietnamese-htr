@@ -44,12 +44,12 @@ class CESystem(BaseSystem):
         }
         return train_metrics
 
-    def prepare_test_metrics(self, vocab) -> Dict:
+    def prepare_test_metrics(self, vocab, indistinguish: bool) -> Dict:
         string_tf = StringTransform(vocab, batch_first=True)
         out_tf = lambda outputs: list(map(string_tf, outputs[1]))
         metrics = {
-            'CER': Running(CharacterErrorRate(output_transform=out_tf)),
-            'WER': Running(WordErrorRate(output_transform=out_tf)),
+            'CER': Running(CharacterErrorRate(output_transform=out_tf, is_indistinguish_letter=indistinguish)),
+            'WER': Running(WordErrorRate(output_transform=out_tf, is_indistinguish_letter=indistinguish)),
         }
         return metrics
 

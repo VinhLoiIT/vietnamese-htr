@@ -314,7 +314,7 @@ class RunningNormalizedWERTestCase(unittest.TestCase):
 class RunningNormalizedAndWithoutDistinctionWERTestCase(unittest.TestCase):
     def setUp(self):
         self.dummy_engine = Engine(self.dummy_output)
-        Running(WordErrorRate(is_global_ed=False, is_distinguish_letter=False)).attach(self.dummy_engine, 'WER')
+        Running(WordErrorRate(is_global_ed=False, is_indistinguish_letter=True)).attach(self.dummy_engine, 'WER')
 
     def dummy_output(self, engine, batch):
         return batch
