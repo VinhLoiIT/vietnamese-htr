@@ -140,7 +140,7 @@ class BaseSystem:
         test_loader = DataLoader(
             dataset=dataset,
             batch_size=config['batch_size'],
-            shuffle=True,
+            shuffle=False,
             collate_fn=lambda batch: CollateWrapper(batch),
             num_workers=config['num_workers'],
             pin_memory=True
@@ -150,6 +150,8 @@ class BaseSystem:
         config['model']['args']['beam_width'] = beam_width
         model = self.prepare_model(vocab, config).to(self.device)
         model.load_state_dict(checkpoint['model'])
+        for param in model.parameters():
+            param.requires_grad = False
 
         self.logger.info('Create test metrics')
         test_metrics = self.prepare_test_metrics(vocab)
