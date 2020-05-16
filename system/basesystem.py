@@ -276,6 +276,3 @@ class BaseSystem:
                              subset=config['debug'],
                              **config['dataset']['test'])
         return dataset
-
-    def collate_fn(self, batch) -> CollateWrapper:
-        return CollateWrapper(batch)
