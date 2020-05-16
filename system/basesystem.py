@@ -52,6 +52,10 @@ class BaseSystem:
         transform = ImageTransform(augmentation=config.get('augmentation', True),
                                    scale_height=config['dataset']['scale_height'],
                                    min_width=config['dataset']['min_width'])
+        self.logger.debug('Train transform')
+        self.logger.debug(transform.train)
+        self.logger.debug('Test transform')
+        self.logger.debug(transform.test)
 
         self.logger.info('Create train loader')
         train_loader = DataLoader(
@@ -141,6 +145,8 @@ class BaseSystem:
         transform = ImageTransform(augmentation=config.get('augmentation', True),
                                    scale_height=config['dataset']['scale_height'],
                                    min_width=config['dataset']['min_width'])
+        self.logger.debug('Test transform')
+        self.logger.debug(transform.test)
 
         self.logger.info('Create test loader')
         if validation:
