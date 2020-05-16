@@ -14,7 +14,7 @@ class EditDistance(Metric):
     Calculates the EditDistance.
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_indistinguish_letter=True):
+    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_indistinguish_letter=False):
         super().__init__(output_transform, device)
         self._ed = 0.0
         self._num_references = 0 # Global ed: number characters in CER (or words in WER) of target
