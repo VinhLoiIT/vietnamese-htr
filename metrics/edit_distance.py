@@ -93,7 +93,7 @@ class WordErrorRate(EditDistance):
     - When recognize at word-level, this metric is (1 - Accuracy)
     - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
     '''
-    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_indistinguish_letter=True):
+    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_indistinguish_letter=False):
         super().__init__(logfile, output_transform, device, is_global_ed, is_indistinguish_letter)
 
     def compute_distance(self, predict: str, target: str):
