@@ -59,7 +59,7 @@ class BaseSystem:
 
         self.logger.info('Create train loader')
         train_loader = DataLoader(
-            dataset=self.prepare_train_dataset(vocab, config, transform.train),
+            dataset=self.prepare_dataset('train', vocab, config, transform.train),
             batch_size=config['batch_size'],
             shuffle=True,
             collate_fn=lambda batch: CollateWrapper(batch),
@@ -95,7 +95,7 @@ class BaseSystem:
 
         self.logger.info('Load val loader')
         val_loader = DataLoader(
-            dataset=self.prepare_val_dataset(vocab, config, transform.test),
+            dataset=self.prepare_dataset('validation', vocab, config, transform.test),
             batch_size=config['batch_size'],
             collate_fn=lambda batch: CollateWrapper(batch),
             shuffle=True,
@@ -150,9 +150,9 @@ class BaseSystem:
 
         self.logger.info('Create test loader')
         if validation:
-            dataset = self.prepare_val_dataset(vocab, config, transform.test)
+            dataset = self.prepare_dataset('validation', vocab, config, transform.test)
         else:
-            dataset = self.prepare_test_dataset(vocab, config, transform.test)
+            dataset = self.prepare_dataset('test', vocab, config, transform.test)
 
         test_loader = DataLoader(
             dataset=dataset,
@@ -253,26 +253,10 @@ class BaseSystem:
     def is_add_blank(self):
         pass
 
-    def prepare_train_dataset(self, vocab, config, image_transform) -> Dataset:
+    def prepare_dataset(self, partition: str, vocab, config, image_transform) -> Dataset:
         dataset = initialize(config['dataset'],
                              image_transform=image_transform,
                              vocab=vocab,
                              subset=config['debug'],
-                             **config['dataset']['train'])
-        return dataset
-
-    def prepare_val_dataset(self, vocab, config, image_transform) -> Dataset:
-        dataset = initialize(config['dataset'],
-                             image_transform=image_transform,
-                             vocab=vocab,
-                             subset=config['debug'],
-                             **config['dataset']['validation'])
-        return dataset
-
-    def prepare_test_dataset(self, vocab, config, image_transform) -> Dataset:
-        dataset = initialize(config['dataset'],
-                             image_transform=image_transform,
-                             vocab=vocab,
-                             subset=config['debug'],
-                             **config['dataset']['test'])
+                             **config['dataset'][partition])
         return dataset
