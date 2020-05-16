@@ -187,33 +187,20 @@ class ModelTF(Model):
         image_features = image_features.transpose(0, 1) # [B,S,E]
         return image_features
 
-    def embed_text(self, text: torch.Tensor) -> torch.Tensor:
-        '''
-        Shapes:
-        -------
-            - text: [B,T]
-
-        Returns:
-        --------
-            - text: [B,T,A]
-        '''
-        text = super().embed_text(text) # [B,T,V]
-        text = self.Vc(text) # [B,T,E]
-        text = self.pe_text(text)
-        return text
-
     def _forward_decode(self, embed_image: torch.Tensor, embed_text: torch.Tensor) -> torch.Tensor:
         '''
         Shapes:
         -------
             - embed_image: [B,S,E]
-            - embed_text: [B,T,E]
+            - embed_text: [B,T,V]
 
         Returns:
         --------
             - outputs: [B,T,V]
         '''
         embed_image = embed_image.transpose(0, 1) # [S,B,E]
+        embed_text = self.Vc(embed_text) # [B,T,E]
+        embed_text = self.pe_text(embed_text) # [B,T,E]
         embed_text = embed_text.transpose(0, 1) # [T,B,E]
 
         attn_mask = nn.Transformer.generate_square_subsequent_mask(None, embed_text.size(0)).to(embed_text.device)
@@ -232,43 +219,40 @@ class ModelTF(Model):
         '''
         batch_size = len(images)
         images = self.embed_image(images) # [B,S,E]
-        images.transpose_(0, 1) # [S,B,E]
 
-        predicts = self.start_index.expand(batch_size).unsqueeze(-1)
-        attn_mask = nn.Transformer.generate_square_subsequent_mask(None, self.max_length).to(predicts.device)
+        predicts = self.start_index.expand(batch_size).unsqueeze(-1) # [B,1]
+        predicts = self.embed_text(predicts) # [B,1,V]
+
         end_flag = torch.zeros(batch_size, dtype=torch.bool)
         for t in range(self.max_length):
-            targets = self.embed_text(predicts) # [B,T,E]
-            targets = targets.transpose_(0,1) # [T,B,E]
-            output = self.decoder(targets, images, tgt_mask=attn_mask[:t+1, :t+1]) # [T,B,E]
-            output = output.transpose_(0, 1) # [B,T,E]
-            output = self.character_distribution(output[:,[-1]]) # [B,1,V]
-            output = output.argmax(-1) # [B, 1]
-            predicts = torch.cat([predicts, output], dim=1)
+            output = self.inference_step(images, predicts)
+            output = F.softmax(output, dim=-1) # [B,1,V]
+            predicts = torch.cat([predicts, output], dim=1) # [B,T,V]
 
+            output = output.argmax(-1) # [B, 1]
             end_flag |= (output.cpu().squeeze(-1) == self.vocab.char2int(self.vocab.EOS))
             if end_flag.all():
                 break
-        return predicts[:,1:]
+        predicts = predicts[:, 1:].argmax(-1)
+        return predicts
 
     def inference_step(self, embedded_image: torch.Tensor, predicts: torch.Tensor):
         '''
         Shapes:
         -------
             - embedded_image: [B,S,E]
-            - predicts: [B,T]
-            - output: [B,V]
+            - predicts: [B,T,V]
+            - logits: [B,V]
         '''
-        text = self.embed_text(predicts) # [B,T,E]
-        text = text.transpose_(0,1) # [T,B,E]
+        text = self.Vc(predicts) # [B,T,E]
+        text = self.pe_text(text) # [B,T,E]
+        text = text.transpose(0,1) # [T,B,E]
         attn_mask = nn.Transformer.generate_square_subsequent_mask(None, len(text)).to(text.device)
         embedded_image = embedded_image.transpose(0, 1) # [S,B,E]
         output = self.decoder(text, embedded_image, tgt_mask=attn_mask) # [T,B,E]
         output = output.transpose_(0, 1) # [B,T,E]
-        output = self.character_distribution(output[:,[-1]]) # [B,1,V]
-        output = F.log_softmax(output.squeeze(1), -1) # [B,V]
-        return output
-
+        logits = self.character_distribution(output[:,[-1]]) # [B,1,V]
+        return logits
 
     def beamsearch(self, images: torch.Tensor):
         '''
@@ -313,7 +297,9 @@ class ModelTF(Model):
 
                 # decode for one step using decoder
                 predicts = torch.tensor(node.prev_chars + [node.current_char], dtype=torch.long).unsqueeze_(0).to(image.device) # [B=1,T]
-                output = self.inference_step(image, predicts) # [B=1, V]
+                predicts = self.embed_text(predicts) # [B,T,V]
+                output = self.inference_step(image, predicts) # [B=1, 1, V]
+                output = F.log_softmax(output[:, -1], dim=-1) # [B=1,V]
 
                 # PUT HERE REAL BEAM SEARCH OF TOP
                 log_probs, indexes = output.topk(beam_width, -1)
