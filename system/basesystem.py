@@ -1,4 +1,3 @@
-import collections.abc
 import datetime
 import logging
 import os
@@ -9,15 +8,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ignite.contrib.handlers import TensorboardLogger
 from ignite.engine import Engine, Events
-from PIL import ImageOps
 from torch import optim
 from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
 
 from config import Config, initialize
-from dataset import *
+from dataset import CollateWrapper
 
-from .utils import ScaleImageByHeight
+from .image_transform import ImageTransform
 from .worker import EvalWorker, TestWorker, TrainWorker
 
 __all__ = [
@@ -51,9 +48,14 @@ class BaseSystem:
         self.logger.debug(f'Vocab size = {vocab.size}')
         self.logger.debug(f'Vocab = {vocab.alphabets}')
 
+        self.logger.info('Create image transform')
+        transform = ImageTransform(augmentation=config.get('augmentation', True),
+                                   scale_height=config['dataset']['scale_height'],
+                                   min_width=config['dataset']['min_width'])
+
         self.logger.info('Create train loader')
         train_loader = DataLoader(
-            dataset=self.prepare_train_dataset(vocab, config),
+            dataset=self.prepare_train_dataset(vocab, config, transform.train),
             batch_size=config['batch_size'],
             shuffle=True,
             collate_fn=lambda batch: CollateWrapper(batch),
@@ -89,7 +91,7 @@ class BaseSystem:
 
         self.logger.info('Load val loader')
         val_loader = DataLoader(
-            dataset=self.prepare_val_dataset(vocab, config),
+            dataset=self.prepare_val_dataset(vocab, config, transform.test),
             batch_size=config['batch_size'],
             collate_fn=lambda batch: CollateWrapper(batch),
             shuffle=True,
@@ -135,11 +137,16 @@ class BaseSystem:
         self.logger.info('Get vocabulary from dataset')
         vocab = self.prepare_vocab(config)
 
+        self.logger.info('Create image transform')
+        transform = ImageTransform(augmentation=config.get('augmentation', True),
+                                   scale_height=config['dataset']['scale_height'],
+                                   min_width=config['dataset']['min_width'])
+
         self.logger.info('Create test loader')
         if validation:
-            dataset = self.prepare_val_dataset(vocab, config)
+            dataset = self.prepare_val_dataset(vocab, config, transform.test)
         else:
-            dataset = self.prepare_test_dataset(vocab, config)
+            dataset = self.prepare_test_dataset(vocab, config, transform.test)
 
         test_loader = DataLoader(
             dataset=dataset,
@@ -237,55 +244,28 @@ class BaseSystem:
         lr_scheduler = initialize(config['lr_scheduler'], optimizer)
         return lr_scheduler
 
-    def prepare_train_image_transform(self, config):
-        transform = transforms.Compose([
-            ImageOps.invert,
-            ScaleImageByHeight(config['dataset']['scale_height'],
-                               config['dataset']['min_width']),
-            transforms.Grayscale(3),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225]),
-        ])
-        return transform
-
-    def prepare_test_image_transform(self, config):
-        transform = transforms.Compose([
-            ImageOps.invert,
-            ScaleImageByHeight(config['dataset']['scale_height'],
-                               config['dataset']['min_width']),
-            transforms.Grayscale(3),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225]),
-        ])
-        return transform
-
     def is_add_blank(self):
         pass
 
-    def prepare_train_dataset(self, vocab, config) -> Dataset:
-        transform = self.prepare_train_image_transform(config)
+    def prepare_train_dataset(self, vocab, config, image_transform) -> Dataset:
         dataset = initialize(config['dataset'],
-                             image_transform=transform,
+                             image_transform=image_transform,
                              vocab=vocab,
                              subset=config['debug'],
                              **config['dataset']['train'])
         return dataset
 
-    def prepare_val_dataset(self, vocab, config) -> Dataset:
-        transform = self.prepare_test_image_transform(config)
+    def prepare_val_dataset(self, vocab, config, image_transform) -> Dataset:
         dataset = initialize(config['dataset'],
-                             image_transform=transform,
+                             image_transform=image_transform,
                              vocab=vocab,
                              subset=config['debug'],
                              **config['dataset']['validation'])
         return dataset
 
-    def prepare_test_dataset(self, vocab, config) -> Dataset:
-        transform = self.prepare_test_image_transform(config)
+    def prepare_test_dataset(self, vocab, config, image_transform) -> Dataset:
         dataset = initialize(config['dataset'],
-                             image_transform=transform,
+                             image_transform=image_transform,
                              vocab=vocab,
                              subset=config['debug'],
                              **config['dataset']['test'])
