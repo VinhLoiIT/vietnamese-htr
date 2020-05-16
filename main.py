@@ -24,7 +24,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('loss', choices=['ctc', 'ce'])
-    parser.add_argument('--debug', action='store_true', default=False)
+    parser.add_argument('--debug', '-D', action='store_true', default=False)
     parser.add_argument('--debug-model', action='store_true', default=False)
     parser.add_argument('--log-root', type=str, default='./runs')
     parser.add_argument('--gpu-id', type=int, default=0)
@@ -51,7 +51,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
     logging.getLogger('PIL').setLevel(level=logging.INFO)
-    func = args.func
     args = vars(args)
-    del args['func']
+    func = args.pop('func')
     func(args)
