@@ -14,31 +14,33 @@ __all__ = [
 
 class _BeamSearchNode(object):
     def __init__(self,
-        prev_chars: List,
+        prev_prob: List[torch.Tensor], # [ [V] ]
         prev_node: '_BeamSearchNode',
-        current_char: int,
         log_prob: float,
-        length: int
+        current_char: torch.Tensor, # [V]
     ):
-        self.prev_chars = prev_chars
+        self.prev_prob = prev_prob
         self.prev_node = prev_node
         self.current_char = current_char
         self.log_prob = log_prob
-        self.length = length
 
     def eval(self):
-        return self.log_prob / float(self.length - 1 + 1e-6)
+        return self.log_prob / float(len(self.prev_prob) - 1 + 1e-6)
 
     def __lt__(self, other):
-        return self.length < other.length
+        return len(self.prev_prob) < len(other.prev_prob)
 
-    def new(self, char_index: int, log_prob: float):
+    def new(self, current_char: torch.Tensor, log_prob: float):
+        '''
+        Shapes:
+        -------
+            - current_char: [V]
+        '''
         new_node = _BeamSearchNode(
-            self.prev_chars + [self.current_char],
+            self.prev_prob + [self.current_char],
             self,
-            char_index,
             self.log_prob + log_prob,
-            self.length + 1,
+            current_char,
         )
         return new_node
 
@@ -225,12 +227,12 @@ class ModelTF(Model):
 
         end_flag = torch.zeros(batch_size, dtype=torch.bool)
         for t in range(self.max_length):
-            output = self.inference_step(images, predicts)
-            output = F.softmax(output, dim=-1) # [B,1,V]
-            predicts = torch.cat([predicts, output], dim=1) # [B,T,V]
+            output = self.inference_step(images, predicts) # [B,V]
+            output = F.softmax(output, dim=-1) # [B,V]
+            predicts = torch.cat([predicts, output.unsqueeze(1)], dim=1) # [B,T,V]
 
-            output = output.argmax(-1) # [B, 1]
-            end_flag |= (output.cpu().squeeze(-1) == self.vocab.char2int(self.vocab.EOS))
+            output = output.argmax(-1) # [B]
+            end_flag |= (output.cpu() == self.vocab.char2int(self.vocab.EOS))
             if end_flag.all():
                 break
         predicts = predicts[:, 1:].argmax(-1)
@@ -251,7 +253,7 @@ class ModelTF(Model):
         embedded_image = embedded_image.transpose(0, 1) # [S,B,E]
         output = self.decoder(text, embedded_image, tgt_mask=attn_mask) # [T,B,E]
         output = output.transpose_(0, 1) # [B,T,E]
-        logits = self.character_distribution(output[:,[-1]]) # [B,1,V]
+        logits = self.character_distribution(output[:,-1]) # [B,V]
         return logits
 
     def beamsearch(self, images: torch.Tensor):
@@ -264,12 +266,12 @@ class ModelTF(Model):
             - outputs: [B,T]
         '''
 
-        def decode_one_sample(image, start, max_length, beam_width):
+        def decode_one_sample(image: torch.Tensor, start: torch.Tensor, max_length: int, beam_width: int):
             '''
             image: [S,E]
-            start: [1]
+            start: [V]
             '''
-            node = _BeamSearchNode([], None, start.item(), 0, 1)
+            node = _BeamSearchNode([], None, 0, start)
             nodes = []
             endnodes = []
 
@@ -287,7 +289,7 @@ class ModelTF(Model):
                 score: float
                 node: _BeamSearchNode
                 score, node = nodes.get()
-                if node.current_char == self.vocab.char2int(self.vocab.EOS) and node.prev_node is not None:
+                if node.current_char.argmax(-1) == self.vocab.char2int(self.vocab.EOS) and node.prev_node is not None:
                     endnodes.append((score, node))
                     # if we reached maximum # of sentences required
                     if len(endnodes) >= beam_width:
@@ -296,15 +298,16 @@ class ModelTF(Model):
                         continue
 
                 # decode for one step using decoder
-                predicts = torch.tensor(node.prev_chars + [node.current_char], dtype=torch.long).unsqueeze_(0).to(image.device) # [B=1,T]
-                predicts = self.embed_text(predicts) # [B,T,V]
-                output = self.inference_step(image, predicts) # [B=1, 1, V]
-                output = F.log_softmax(output[:, -1], dim=-1) # [B=1,V]
+                predicts = torch.stack(node.prev_prob + [node.current_char], dim=0) # [T,V]
+                predicts = predicts.unsqueeze(0).to(image.device) # [B=1,T,V]
+                logits = self.inference_step(image, predicts) # [B=1,V]
+                log_prob = F.log_softmax(logits, dim=-1).squeeze(0) # [V]
+                prob = F.softmax(logits, dim=-1).squeeze(0) # [V]
 
                 # PUT HERE REAL BEAM SEARCH OF TOP
-                log_probs, indexes = output.topk(beam_width, -1)
-                for log_prob, index in zip(log_probs.squeeze_(0).tolist(), indexes.squeeze_(0).tolist()):
-                    new_node = node.new(index, log_prob)
+                log_probs, indexes = log_prob.topk(beam_width, -1)
+                for log_prob in log_probs.cpu().tolist():
+                    new_node = node.new(prob, log_prob)
                     nodes.put_nowait((-new_node.eval(), new_node))
 
             # choose nbest paths, back trace them
@@ -315,19 +318,18 @@ class ModelTF(Model):
             # print([x[0] for x in endnodes])
             score, node = sorted(endnodes, key=lambda x: x[0])[0]
             # print(f'Best score: {-score}, length = {node.length}')
-            s = [node.current_char]
+            s = [node.current_char.argmax(-1)]
             # back trace
             while node.prev_node is not None:
                 node = node.prev_node
-                s.insert(0, node.current_char)
+                s.insert(0, node.current_char.argmax(-1))
             return torch.tensor(s, dtype=torch.long)
 
         batch_size = len(images)
         images = self.embed_image(images) # [B,S,E]
         images.transpose_(0, 1) # [S,B,E]
 
-        starts = self.start_index.expand(batch_size).unsqueeze_(1)
-        predicts = starts.clone()
+        starts = self.embed_text(self.start_index.expand(batch_size, 1)).squeeze(1) # [B,V]
         decoded_batch = []
 
         # decoding goes sentence by sentence
