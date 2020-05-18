@@ -4,7 +4,7 @@ from typing import Dict, Union
 
 from torch import optim
 from model import *
-from dataset import *
+from dataset import IAM, RIMESVocab, VNOnDBVocab, VNOnDBVocabFlatten, CinnamonVocab, HTRDataset
 
 MAPPING_NAME = {
     # optimizers
@@ -37,7 +37,7 @@ MAPPING_NAME = {
     # dataset
     'vnondb': HTRDataset,
     'vnondb_line': HTRDataset,
-    'rimes': RIMES,
+    'rimes': HTRDataset,
     'rimes_line': HTRDataset,
     'cinnamon': HTRDataset,
 
@@ -47,7 +47,8 @@ MAPPING_NAME = {
     'vnondb_line_vocab': VNOnDBVocab,
     'vnondb_line_vocab_flatten': VNOnDBVocabFlatten,
     'cinnamon_vocab': CinnamonVocab,
-
+    'rimes_vocab': RIMESVocab,
+    'rimes_line_vocab': RIMESVocab,
 }
 
 def initialize(config: Dict, *args, **kwargs):

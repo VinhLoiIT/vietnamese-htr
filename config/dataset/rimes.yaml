@@ -2,14 +2,17 @@ dataset:
   name: rimes
   args:
 
+  scale_height: 32
+  min_width: 25.0
+
   train:
-    groundtruth_txt: data/RIMES/groundtruth_training_icdar2011.txt
-    image_folder: data/RIMES/trainingsnippets_icdar/training_WR
+    csv: data/RIMES/train.csv
+    image_folder: data/RIMES/training_WR
 
   validation:
-    groundtruth_txt: data/RIMES/ground_truth_validation_icdar2011.txt
-    image_folder: data/RIMES/validationsnippets_icdar/testdataset_ICDAR
+    csv: data/RIMES/validation.csv
+    image_folder: data/RIMES/testdataset_ICDAR
 
   test:
-    groundtruth_txt: data/RIMES/grount_truth_test_icdar2011.txt
+    csv: data/RIMES/test.csv
     image_folder: data/RIMES/data_test

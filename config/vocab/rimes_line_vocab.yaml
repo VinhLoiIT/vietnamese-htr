@@ -1,0 +1,4 @@
+vocab:
+  name: rimes_line_vocab
+  args:
+    train_csv: data/RIMES_Line/train.csv
