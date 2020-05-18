@@ -2,6 +2,9 @@ dataset:
   name: rimes_line
   args:
 
+  scale_height: 64
+  min_width: 34.0
+
   train:
     csv: data/RIMES_Line/train.csv
     image_folder: data/RIMES_Line/train
