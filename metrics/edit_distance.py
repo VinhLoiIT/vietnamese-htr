@@ -54,7 +54,8 @@ class EditDistance(Metric):
 
         for i, (predict, target) in enumerate(zip(y_pred, y)):
             if self.is_indistinguish_letter:
-                predict, target = predict.lower(), target.lower()
+                predict = list(map(lambda x:x.lower(), predict))
+                target = list(map(lambda x:x.lower(), target))
             distance, num_reference = self.compute_distance(predict, target)
             if self.log is not None:
                 self.log.write(f'{"".join(predict)}|{"".join(target)}|{distance}\n')
