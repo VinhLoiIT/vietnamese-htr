@@ -46,7 +46,7 @@ if __name__ == "__main__":
     parser.add_argument('dir', type=str, help='RIMES folder')
     args = parser.parse_args()
 
-    train_df = convert_df(os.path.join(args.dir, 'training_2011.xml'))
+    train_df = convert_df(os.path.join(args.dir, 'training_2011.patched.xml'))
     test_df = convert_df(os.path.join(args.dir, 'eval_2011_annotated.xml'))
     train_df, val_df = train_test_split(train_df, test_size=0.1, random_state=0)
 

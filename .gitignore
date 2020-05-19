@@ -109,6 +109,7 @@ ckpt/*
 runs/*
 !data/*.sh
 !data/*.py
+!data/RIMES_Line/training_2011.patch
 
 # VSCode
 .vscode/
