@@ -137,6 +137,8 @@ class BaseSystem:
         if isinstance(checkpoint, str):
             checkpoint = torch.load(checkpoint, map_location=self.device)
         config = Config(checkpoint['config'])
+        self.logger.info('Config')
+        self.logger.info(config)
 
         self.logger.info('Get vocabulary from dataset')
         vocab = self.prepare_vocab(config)
