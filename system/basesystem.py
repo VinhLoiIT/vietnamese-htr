@@ -86,7 +86,7 @@ class BaseSystem:
 
         loss_input_tf = self.prepare_loss_inputs
         forward_input_tf = self.prepare_model_forward_inputs
-        save_metric_best = 'CER'
+        save_metric_best = config.get('save_by', 'CER')
         val_metrics = self.prepare_val_metrics(vocab, loss)
         log_dir = self.prepare_log_dir(config)
         tb_logger = TensorboardLogger(log_dir)
@@ -128,7 +128,9 @@ class BaseSystem:
 
         trainer.train(train_loader, config['max_epochs'], evaluator, val_loader, checkpoint)
 
-    def test(self, checkpoint: Union[Dict, str],
+    def test(
+        self,
+        checkpoint: Union[Dict, str],
         validation: bool = False,
         beam_width: int = 1,
         indistinguish: bool = False,
