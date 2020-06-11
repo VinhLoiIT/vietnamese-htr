@@ -430,7 +430,7 @@ class ModelRNN(Model):
 
         return outputs
 
-    def greedy(self, images: torch.Tensor) -> torch.Tensor:
+    def greedy(self, images: torch.Tensor, output_weights: bool = False) -> torch.Tensor:
         '''
         Shapes:
         -------
@@ -454,10 +454,12 @@ class ModelRNN(Model):
         outputs = torch.zeros(batch_size, self.max_length, device=embedded_image.device, dtype=torch.long)
 
         end_flag = torch.zeros(batch_size, dtype=torch.bool)
+        weights = []
         for t in range(self.max_length):
             attn_hidden = self.Hc(hidden) # [B, A]
-            context, _ = self.attention(attn_hidden.unsqueeze(1), embedded_image, embedded_image) # [B, 1, A]
+            context, weight = self.attention(attn_hidden.unsqueeze(1), embedded_image, embedded_image, output_weights=output_weights) # [B, 1, A]
             context.squeeze_(1) #
+            weights.append(weight)
             rnn_input = torch.cat((rnn_input, context), -1) # [B, V+A]
 
             hidden, cell_state = self.rnn(rnn_input, (hidden, cell_state))
@@ -469,4 +471,8 @@ class ModelRNN(Model):
             end_flag |= (output.cpu().squeeze(-1) == self.vocab.char2int(self.vocab.EOS))
             if end_flag.all():
                 break
-        return outputs
+        if output_weights:
+            weights = torch.cat(weights, dim=1) # [B,T,S]
+            return outputs, weights
+        else:
+            return outputs
