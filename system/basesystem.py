@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+import yaml
 from typing import Dict, Union
 
 import torch
@@ -36,9 +37,6 @@ class BaseSystem:
     def train(self, config: Config, checkpoint: str = None):
         if checkpoint:
             checkpoint = torch.load(checkpoint, map_location=self.device)
-            checkpoint_config = checkpoint['config']
-        else:
-            checkpoint_config = None
 
         self.logger.info('Config')
         self.logger.info(config)
@@ -92,6 +90,7 @@ class BaseSystem:
         tb_logger = TensorboardLogger(log_dir)
         checkpoint_dir = os.path.join(log_dir, 'weights')
         os.makedirs(checkpoint_dir, exist_ok=True)
+        yaml.dump(config, open(os.path.join(checkpoint_dir, 'config.yaml'), 'wt'))
 
         self.logger.info('Load val loader')
         val_loader = DataLoader(
@@ -130,15 +129,13 @@ class BaseSystem:
 
     def test(
         self,
-        checkpoint: Union[Dict, str],
+        config: Dict,
+        checkpoint: Dict,
         validation: bool = False,
         beam_width: int = 1,
         indistinguish: bool = False,
     ):
         self.logger.info(f'Load configuration from checkpoint')
-        if isinstance(checkpoint, str):
-            checkpoint = torch.load(checkpoint, map_location=self.device)
-        config = Config(checkpoint['config'])
         self.logger.info('Config')
         self.logger.info(config)
 

@@ -17,7 +17,8 @@ from typing import Mapping, Dict, Callable
 
 
 class Worker(object):
-    def __init__(self,
+    def __init__(
+        self,
         tb_logger: TensorboardLogger = None
     ):
         self._engine = Engine(self._step)
@@ -39,7 +40,8 @@ class Worker(object):
 
 
 class TrainWorker(Worker):
-    def __init__(self,
+    def __init__(
+        self,
         model: nn.Module,
         loss: nn.Module,
         metrics: Dict,
@@ -86,13 +88,14 @@ class TrainWorker(Worker):
         state = self._engine.run(data_loader, None, seed=None)
         return state
 
-    def train(self,
+    def train(
+        self,
         train_loader: DataLoader,
         max_epochs: int,
         evaluator: 'EvalWorker',
-        val_loader: DataLoader=None,
+        val_loader: DataLoader = None,
         eval_train: bool = False,
-        checkpoint: Mapping=None,
+        checkpoint: Mapping = None,
     ):
         self._engine.add_event_handler(Events.EPOCH_COMPLETED,
                                        self.validate,
@@ -116,7 +119,9 @@ class TrainWorker(Worker):
         self.logger.info(state.metrics)
         return state.metrics
 
-    def validate(self, engine: Engine,
+    def validate(
+        self,
+        engine: Engine,
         evaluator: 'EvalWorker',
         train_loader: DataLoader,
         val_loader: DataLoader
@@ -130,7 +135,7 @@ class TrainWorker(Worker):
             val_metrics: Dict = evaluator.eval(val_loader)
         else:
             val_metrics = None
-        
+
         if val_metrics:
             is_better = self.lr_scheduler.is_better(
                 val_metrics[self.save_metric_best],
@@ -160,7 +165,6 @@ class TrainWorker(Worker):
 
     def save_checkpoint(self, path: str) -> None:
         to_save = {
-            'config': self.config,
             'model': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'lr_scheduler': self.lr_scheduler.state_dict(),
@@ -171,7 +175,8 @@ class TrainWorker(Worker):
 
 
 class EvalWorker(Worker):
-    def __init__(self,
+    def __init__(
+        self,
         model: nn.Module,
         metrics: Dict,
         decode_func: Callable,
@@ -203,8 +208,10 @@ class EvalWorker(Worker):
         decoded = self.decode_func(*decode_inputs)
         return self.loss_input_tf(outputs, batch), self.metric_input_tf(decoded, batch)
 
+
 class TestWorker(EvalWorker):
-    def __init__(self,
+    def __init__(
+        self,
         model: nn.Module,
         metrics: Dict,
         decode_func: Callable,
