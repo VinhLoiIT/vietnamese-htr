@@ -203,13 +203,14 @@ class ResnetFE(FE):
         'resnet34': torchvision.models.resnet34,
     }
 
-    def __init__(self, version='resnet50'):
+    def __init__(self, version='resnet50', droplast: int = 0):
         super().__init__()
         resnet = ResnetFE.version[version](pretrained=True)
-        #self.n_features = resnet.fc.in_features
-        self.n_features = 512
-        self.cnn = nn.Sequential(*list(resnet.children())[:-4])
-        #self.cnn = nn.Sequential(*list(resnet.children())[:-2])
+        self.cnn = nn.Sequential(*list(resnet.children())[:-2-droplast])
+        for child in reversed(list(self.cnn[-1][-1].children())):
+            if isinstance(child, nn.BatchNorm2d):
+                self.n_features = child.num_features
+                break
 
     def get_cnn(self):
         return self.cnn
@@ -219,7 +220,6 @@ class ResnetFE(FE):
 
     def forward(self, x):
         x = self.cnn(x)
-        # x = self.pool(x)
         return x
 
 class ResnextFE(FE):
