@@ -13,3 +13,4 @@ model:
     use_pe_text: false
     use_pe_image: false
     use_stn: false
+    use_aspp: false
