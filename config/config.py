@@ -20,6 +20,7 @@ MAPPING_NAME = {
     'resnet': ResnetFE,
     'resnext': ResnextFE,
     'deformresnet': DeformResnetFE,
+    'vgg': VGGFE,
 
     # lr_scheduler:
     'plateau': optim.lr_scheduler.ReduceLROnPlateau,
