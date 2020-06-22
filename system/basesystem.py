@@ -90,7 +90,7 @@ class BaseSystem:
         tb_logger = TensorboardLogger(log_dir)
         checkpoint_dir = os.path.join(log_dir, 'weights')
         os.makedirs(checkpoint_dir, exist_ok=True)
-        yaml.dump(config, open(os.path.join(checkpoint_dir, 'config.yaml'), 'wt'))
+        yaml.dump(config.config, open(os.path.join(checkpoint_dir, 'config.yaml'), 'wt'))
 
         self.logger.info('Load val loader')
         val_loader = DataLoader(
