@@ -8,14 +8,10 @@ from torch.nn.utils.rnn import pack_padded_sequence
 
 from config import Config
 from metrics import CharacterErrorRate, Loss, Running, WordErrorRate
+from loss import LabelSmoothingCrossEntropy
 
 from .basesystem import BaseSystem
 from .utils import CTCStringTransform, StringTransform
-
-__all__ = [
-    'CESystem',
-    'CEInference',
-]
 
 
 class CESystem(BaseSystem):
@@ -63,8 +59,11 @@ class CESystem(BaseSystem):
         }
         return metrics
 
-    def prepare_loss_function(self, vocab) -> nn.Module:
-        return nn.CrossEntropyLoss()
+    def prepare_loss_function(self, vocab, **kwargs) -> nn.Module:
+        if kwargs.get('smoothing', 0) > 0:
+            return LabelSmoothingCrossEntropy(kwargs['smoothing'])
+        else:
+            return nn.CrossEntropyLoss()
 
     def is_add_blank(self):
         return False

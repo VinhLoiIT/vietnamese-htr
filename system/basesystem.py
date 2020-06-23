@@ -34,7 +34,7 @@ class BaseSystem:
         torch.manual_seed(self.seed)
         torch.cuda.manual_seed_all(self.seed)
 
-    def train(self, config: Config, checkpoint: str = None):
+    def train(self, config: Config, checkpoint: str = None, smoothing=0):
         if checkpoint:
             checkpoint = torch.load(checkpoint, map_location=self.device)
 
@@ -71,7 +71,7 @@ class BaseSystem:
 
         # Step 3: Init loss function
         self.logger.info('Create loss')
-        loss = self.prepare_loss_function(vocab).to(self.device)
+        loss = self.prepare_loss_function(vocab=vocab, smoothing=smoothing).to(self.device)
 
         self.logger.info('Create train metrics')
         train_metrics = self.prepare_train_metrics(loss, config['log_interval'])

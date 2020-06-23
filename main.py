@@ -11,7 +11,7 @@ def setup_train(args: Dict):
     system = CESystem if args.pop('loss', 'ce') == 'ce' else CTCSystem
     config = Config(args.pop('config_path'), **args)
     # TODO: override config
-    system().train(config, args['checkpoint'])
+    system().train(config, args['checkpoint'], args['smoothing'])
 
 def setup_test(args: Dict):
     system = CESystem if args.pop('loss', 'ce') == 'ce' else CTCSystem
@@ -45,6 +45,7 @@ if __name__ == '__main__':
     train_parser = subparser.add_parser('train')
     train_parser.set_defaults(func=setup_train)
     train_parser.add_argument('config_path', type=str)
+    train_parser.add_argument('--smoothing', type=float, default=0)
     train_parser.add_argument('--comment', type=str, default='')
     train_parser.add_argument('--trainval', action='store_true', default=False)
     train_parser.add_argument('-c', '--checkpoint', type=str)

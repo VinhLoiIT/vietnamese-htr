@@ -64,8 +64,8 @@ class CTCSystem(BaseSystem):
         }
         return metrics
 
-    def prepare_loss_function(self, vocab) -> nn.Module:
-        return nn.CTCLoss(blank=vocab.BLANK_IDX)
+    def prepare_loss_function(self, vocab, **kwargs) -> nn.Module:
+        return nn.CTCLoss(blank=kwargs['vocab'].BLANK_IDX)
 
     def is_add_blank(self):
         return True
