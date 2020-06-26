@@ -60,7 +60,7 @@ class BaseSystem:
             dataset=self.prepare_dataset('train', vocab, config, transform.train),
             batch_size=config['batch_size'],
             shuffle=True,
-            collate_fn=lambda batch: CollateWrapper(batch),
+            collate_fn=lambda batch: CollateWrapper(batch, None),
             num_workers=config['num_workers'],
             pin_memory=True
         )
@@ -159,7 +159,7 @@ class BaseSystem:
             dataset=dataset,
             batch_size=config['batch_size'],
             shuffle=False,
-            collate_fn=lambda batch: CollateWrapper(batch),
+            collate_fn=lambda batch: CollateWrapper(batch, None),
             num_workers=config['num_workers'],
             pin_memory=True
         )
