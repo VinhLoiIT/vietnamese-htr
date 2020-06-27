@@ -121,7 +121,7 @@ class BaseSystem:
             optimizer, lr_scheduler,
             loss_input_tf,
             forward_input_tf, save_metric_best,
-            checkpoint_dir, config.config,
+            checkpoint_dir,
             tb_logger
         )
 

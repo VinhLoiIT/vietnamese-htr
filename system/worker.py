@@ -51,7 +51,6 @@ class TrainWorker(Worker):
         forward_input_tf: Callable,
         save_metric_best: str,
         checkpoint_dir: str,
-        config: Mapping,
         tb_logger: TensorboardLogger = None
     ):
         super().__init__(tb_logger)
@@ -62,7 +61,6 @@ class TrainWorker(Worker):
         self.tb_logger = tb_logger
         self.checkpoint_dir = checkpoint_dir
         self.save_metric_best = save_metric_best
-        self.config = config
         self.forward_input_tf = forward_input_tf
         self.loss_input_tf = loss_input_tf
 
