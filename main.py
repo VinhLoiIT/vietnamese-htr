@@ -16,7 +16,8 @@ def setup_train(args: Dict):
 def setup_test(args: Dict):
     system = CESystem if args.pop('loss', 'ce') == 'ce' else CTCSystem
     checkpoint = args['checkpoint']
-    checkpoint = torch.load(checkpoint)
+    checkpoint = torch.load(checkpoint,
+                            map_location='cpu' if args.pop('cpu') else None)
 
     if args['config'] is None:
         args['config'] = os.path.join(os.path.dirname(args['checkpoint']), 'config.yaml')
@@ -57,6 +58,7 @@ if __name__ == '__main__':
     test_parser.add_argument('--beam-width', type=int, default=1)
     test_parser.add_argument('--validation', action='store_true', default=False)
     test_parser.add_argument('--indistinguish', action='store_true', default=False)
+    test_parser.add_argument('--cpu', action='store_true', default=False)
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
