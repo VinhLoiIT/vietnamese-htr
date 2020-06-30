@@ -218,13 +218,14 @@ class ModelTF(Model):
         outputs = self.character_distribution(outputs)
         return outputs
 
-    def greedy(self, images: torch.Tensor) -> torch.Tensor:
+    def greedy(self, images: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         '''
         Shapes:
         -------
             - images: [B,C,H,W]
         Returns:
             - outputs: [B,T]
+            - lengths: [B]
         '''
         batch_size = len(images)
         images = self.embed_image(images) # [B,S,E]
@@ -233,17 +234,21 @@ class ModelTF(Model):
         predicts = self.embed_text(predicts) # [B,1,V]
 
         end_flag = torch.zeros(batch_size, dtype=torch.bool)
+        lengths = torch.ones(batch_size, dtype=torch.long).fill_(self.max_length)
         for t in range(self.max_length):
             output = self.inference_step(images, predicts) # [B,V]
             output = F.softmax(output, dim=-1) # [B,V]
             predicts = torch.cat([predicts, output.unsqueeze(1)], dim=1) # [B,T,V]
 
             output = output.argmax(-1) # [B]
-            end_flag |= (output.cpu() == self.vocab.char2int(self.vocab.EOS))
+            current_end = output.cpu() == self.vocab.char2int(self.vocab.EOS)
+            lengths.masked_fill_(~end_flag & current_end, t + 1)
+            end_flag |= current_end
             if end_flag.all():
                 break
+
         predicts = predicts[:, 1:].argmax(-1)
-        return predicts
+        return predicts, lengths
 
     def inference_step(self, embedded_image: torch.Tensor, predicts: torch.Tensor):
         '''
@@ -338,13 +343,18 @@ class ModelTF(Model):
 
         starts = self.embed_text(self.start_index.expand(batch_size, 1)).squeeze(1) # [B,V]
         decoded_batch = []
+        lengths = []
 
         # decoding goes sentence by sentence
         for idx in range(batch_size):
             string_index = decode_one_sample(images[:, idx], starts[idx], self.max_length, self.beam_width)
             decoded_batch.append(string_index)
+            lengths.append(len(string_index) - 1) # ignore SOS
 
-        return torch.nn.utils.rnn.pad_sequence(decoded_batch, batch_first=True)[:, 1:]
+        decoded_batch = torch.nn.utils.rnn.pad_sequence(decoded_batch, batch_first=True)[:, 1:]
+        lengths = torch.tensor(lengths, dtype=torch.long)
+
+        return decoded_batch, lengths
 
 
 class ModelTFA2D(ModelTF):

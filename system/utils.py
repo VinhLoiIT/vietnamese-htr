@@ -84,26 +84,20 @@ class StringTransform(object):
         self.EOS_int = vocab.char2int(vocab.EOS)
         self.vocab = vocab
 
-    def calc_length(self, tensor: torch.tensor):
-        '''
-        Calculate length of each string ends with EOS
-        '''
-        lengths = []
-        for sample in tensor.tolist():
-            try:
-                length = sample.index(self.EOS_int)
-            except:
-                length = len(sample)
-            lengths.append(length)
-        return lengths
-
-    def __call__(self, tensor: torch.tensor):
+    def __call__(self, tensor: torch.Tensor, lengths: torch.Tensor):
         '''
         Convert a Tensor to a list of Strings
+
+        Shapes:
+        -------
+        - tensor: [B,T]
+        - lengths: [B]
         '''
         if not self.batch_first:
             tensor = tensor.transpose(0,1)
-        lengths = self.calc_length(tensor)
+
+        tensor = tensor.cpu()
+        lengths = lengths.cpu()
 
         strs = []
         for i, length in enumerate(lengths):

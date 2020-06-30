@@ -31,8 +31,8 @@ class CESystem(BaseSystem):
         packed_targets = pack_padded_sequence(targets, lengths, True)[0]
         return packed_outputs, packed_targets
 
-    def prepare_metric_inputs(self, decoded, batch):
-        return decoded, batch.labels[:, 1:].to(self.device)
+    def prepare_metric_inputs(self, decoded: List, batch):
+        return decoded[0], decoded[1], batch.labels[:, 1:].to(self.device), batch.lengths - 1
 
     def prepare_train_metrics(self, loss_fn, log_interval: int) -> Dict:
         train_metrics = {
@@ -42,7 +42,7 @@ class CESystem(BaseSystem):
 
     def prepare_test_metrics(self, vocab, indistinguish: bool) -> Dict:
         string_tf = StringTransform(vocab, batch_first=True)
-        out_tf = lambda outputs: list(map(string_tf, outputs[1]))
+        out_tf = lambda outputs: (string_tf(outputs[1][0], outputs[1][1]), string_tf(outputs[1][2], outputs[1][3]))
         metrics = {
             'CER': Running(CharacterErrorRate(output_transform=out_tf, is_indistinguish_letter=indistinguish)),
             'WER': Running(WordErrorRate(output_transform=out_tf, is_indistinguish_letter=indistinguish)),
@@ -51,7 +51,7 @@ class CESystem(BaseSystem):
 
     def prepare_val_metrics(self, vocab, loss_fn) -> Dict:
         string_tf = StringTransform(vocab, batch_first=True)
-        out_tf = lambda outputs: list(map(string_tf, outputs))
+        out_tf = lambda outputs: (string_tf(outputs[0], outputs[1]), string_tf(outputs[2], outputs[3]))
         metrics = {
             'Loss': Running(Loss(loss_fn, lambda outputs: outputs[0])),
             'CER': Running(CharacterErrorRate(output_transform=lambda outputs: out_tf(outputs[1]))),
