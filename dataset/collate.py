@@ -1,13 +1,13 @@
 import torch
 from torch.nn.utils.rnn import pad_sequence
 
-from typing import List, Tuple, Union
+from typing import List, Tuple, Optional
 
 
 def collate_images(
     images: List[torch.Tensor],
     pad_value: torch.Tensor,
-    max_size: Tuple[int, int] = None,
+    max_size: Optional[Tuple[int, int]] = None,
     ) -> Tuple[torch.Tensor,torch.Tensor]:
     '''
     max_size: (max_H, max_W)
@@ -23,13 +23,13 @@ def collate_images(
 
     collated_images = pad_value.repeat(len(images), max_H, max_W, 1)
     collated_images = collated_images.permute(0,3,1,2)
-    masks = torch.ones(len(images), max_H, max_W, dtype=torch.bool)
+    padding_masks = torch.ones(len(images), max_H, max_W, dtype=torch.bool)
     for i, image in enumerate(images):
         image_row = image.shape[1]
         image_col = image.shape[2]
         collated_images[i, :, :image_row, :image_col] = image
-        masks[i, :image_row, :image_col] = False
-    return collated_images, masks
+        padding_masks[i, :image_row, :image_col] = False
+    return collated_images, padding_masks
 
 
 class CollateImageWrapper:
@@ -67,17 +67,17 @@ class CollateWrapper:
     def __init__(
         self,
         batch,
-        max_size: Union[None, Tuple[int, int]],
+        max_size: Optional[Tuple[int, int]],
         pad_value = torch.tensor([0.]),
     ):
         '''
         Shapes:
         -------
-        batch: list of 2-tuples:
-            - image: tensor of [C, H, W]
-            - label: tensor of [T*] where T* varies from labels and includes '<start>' and '<end>' at both ends
-        pad_value: value for padding
-        max_size: (max_H, max_W) or None. If None, it would be the largest size of the batch
+        - batch: list of 2-tuples:
+          - image: tensor of [C, H, W]
+          - label: tensor of [T*] where T* varies from labels and includes '<start>' and '<end>' at both ends
+        - pad_value: value for padding
+        - max_size: `(max_H, max_W)` or None. If None, it would be the largest size of the batch
 
         Returns:
         --------
