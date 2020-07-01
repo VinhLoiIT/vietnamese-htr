@@ -205,6 +205,7 @@ if __name__ == "__main__":
     train_parser.set_defaults(command='train')
     train_parser.add_argument('config_path', type=str)
     train_parser.add_argument('--max-epochs', type=int, default=50)
+    train_parser.add_argument('--batch-size', type=int, default=16)
     train_parser.add_argument('--smoothing', type=float, default=0)
     train_parser.add_argument('--comment', type=str, default='')
     train_parser.add_argument('--trainval', action='store_true', default=False)
