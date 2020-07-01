@@ -1,107 +1,88 @@
+from typing import List, Tuple
+
 import editdistance as ed
-import torch
-from ignite.exceptions import NotComputableError
-from ignite.metrics.metric import Metric, reinit__is_reduced, sync_all_reduce
+from pytorch_lightning.metrics import NumpyMetric
 
 __all__ = [
-    'EditDistance',
+    'compute_cer',
+    'compute_wer',
     'CharacterErrorRate',
     'WordErrorRate',
 ]
 
-class EditDistance(Metric):
+
+def compute_cer(
+    predicts: List[List[str]],
+    targets: List[List[str]],
+    indistinguish: bool
+) -> Tuple[List[int], List[int]]:
     '''
-    Calculates the EditDistance.
-    - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
+    Calculate CER distance between two strings or two lists of strings
+
+    Params:
+    -------
+    - predicts: List of predicted characters
+    - targets: List of target characters
+    - indistinguish: set to True to case-insensitive, or False to case-sensitive
+
+    Returns:
+    --------
+    - distances: List of distances
+    - n_references: List of the number of characters of targets
     '''
-    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_indistinguish_letter=False):
-        super().__init__(output_transform, device)
-        self._ed = 0.0
-        self._num_references = 0 # Global ed: number characters in CER (or words in WER) of target
-                                # Mean normalized ed: number examples
-        self.is_global_ed = is_global_ed
-        self.is_indistinguish_letter = is_indistinguish_letter
-        self.log = logfile
+    assert type(predicts) == type(targets), 'predicts and targets must be the same type'
+    assert len(predicts) == len(targets), 'predicts and targets must have the same length'
 
-        if self.log is not None:
-            if isinstance(self.log, str):
-                self.log = open(self.log, 'wt')
+    distances = [ed.distance(predict, target) for predict, target in zip(predicts, targets)]
+    num_references = list(map(len, targets))
+    return distances, num_references
 
-    def __del__(self):
-        if self.log is not None:
-            self.log.close()
 
-    def compute_distance(self, predict: str, target: str):
-        '''
-        Compute edit distance between two strings and number reference (len(target))
-        '''
-        pass
-
-    @reinit__is_reduced
-    def reset(self) -> None:
-        self._ed = 0.0
-        self._num_references = 0
-
-    @reinit__is_reduced
-    def update(self, output) -> None:
-        '''
-        output: (list of predict string, list of target string)
-        '''
-        y_pred, y = output
-        assert len(y_pred) == len(y)
-        
-        batch_size = len(y)
-
-        for i, (predict, target) in enumerate(zip(y_pred, y)):
-            if self.is_indistinguish_letter:
-                predict = list(map(lambda x:x.lower(), predict))
-                target = list(map(lambda x:x.lower(), target))
-            distance, num_reference = self.compute_distance(predict, target)
-            if self.log is not None:
-                self.log.write(f'{"".join(predict)}|{"".join(target)}|{distance}\n')
-            if self.is_global_ed:
-                self._ed += distance
-                self._num_references += num_reference
-            else:
-                self._ed += distance / num_reference
-                self._num_references += 1
-
-    @sync_all_reduce("_ed", "_num_references")
-    def compute(self):
-        if self._num_references == 0:
-            raise NotComputableError('EditDistance must have at least one example before it can be computed.')
-        return self._ed / self._num_references
-
-class CharacterErrorRate(EditDistance):
+def compute_wer(
+    predicts: List[List[str]],
+    targets: List[List[str]],
+    indistinguish: bool
+) -> Tuple[List[int], List[int]]:
     '''
-    Calculates the CharacterErrorRate.
-    - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
-    '''
-    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_indistinguish_letter=False):
-        super().__init__(logfile, output_transform, device, is_global_ed, is_indistinguish_letter)
+    Calculate CER distance between two strings or two lists of strings
 
-    def compute_distance(self, predict: str, target: str):
-        '''
-        Compute edit distance between two strings
-        '''
-        distance = ed.distance(predict, target)
-        return distance, len(target)
+    Params:
+    -------
+    - predicts: List of predicted characters
+    - targets: List of target characters
+    - indistinguish: set to True to case-insensitive, or False to case-sensitive
 
-class WordErrorRate(EditDistance):
+    Returns:
+    --------
+    - distances: List of distances
+    - n_references: List of the number of words of targets
     '''
-    Calculates the WordErrorRate.
-    Notes:
-    - When recognize at word-level, this metric is (1 - Accuracy)
-    - `update` must receive output of the form `(y_pred, y)` or `{'y_pred': y_pred, 'y': y}`.
-    '''
-    def __init__(self, logfile=None, output_transform=lambda x: x, device=None, is_global_ed=True, is_indistinguish_letter=False):
-        super().__init__(logfile, output_transform, device, is_global_ed, is_indistinguish_letter)
+    assert type(predicts) == type(targets), 'predicts and targets must be the same type'
+    assert len(predicts) == len(targets), 'predicts and targets must have the same length'
 
-    def compute_distance(self, predict: str, target: str):
-        '''
-        Compute edit distance between two strings
-        '''
+    distances = []
+    num_references = []
+    for predict, target in zip(predicts, targets):
         predict = ''.join(predict).split(' ')
         target = ''.join(target).split(' ')
-        distance = ed.distance(predict, target)
-        return distance, len(target)
+        distances.append(ed.distance(predict, target))
+        num_references.append(len(target))
+    
+    return distances, num_references
+
+
+class CharacterErrorRate(NumpyMetric):
+    def __init__(self, indistinguish: bool = False):
+        super().__init__('CER')
+        self.indistinguish = indistinguish
+
+    def forward(self, predicts, targets):
+        return compute_cer(predicts, targets, self.indistinguish)
+
+class WordErrorRate(NumpyMetric):
+    def __init__(self, indistinguish: bool = False):
+        super().__init__('WER')
+        self.indistinguish = indistinguish
+
+    def forward(self, predicts, targets):
+        return compute_wer(predicts, targets, self.indistinguish)

@@ -5,16 +5,22 @@ import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+import torchvision
 import yaml
 from pytorch_lightning.metrics.metric import Metric
+from pytorch_lightning import loggers as pl_loggers
+
 from torch.nn.utils.rnn import pack_padded_sequence
 from torch.utils.data import DataLoader, Dataset
 
 from config import Config, initialize
 from dataset import CollateWrapper
-from metrics import CharacterErrorRate, WordErrorRate
+from metrics import compute_cer, compute_wer
 from image_transform import ImageTransform
 from utils import StringTransform
+
+
+pl.seed_everything(0)
 
 
 class CE(pl.LightningModule):
@@ -31,8 +37,6 @@ class CE(pl.LightningModule):
 
         cnn = initialize(config['cnn'])
         self.model = initialize(config['model'], cnn, self.vocab)
-        self.cer = CharacterErrorRate()
-        self.wer = WordErrorRate()
         self.config = config
         self.string_tf = StringTransform(self.vocab)
         self.max_length = config['max_length']
@@ -63,17 +67,25 @@ class CE(pl.LightningModule):
         images = batch.images.to(self.device)
         labels = batch.labels[:, :-1].to(self.device)
         image_padding_mask = batch.image_padding_mask.to(self.device)
-        lengths = batch.lengths.to(self.device)
+        lengths = (batch.lengths - 1).to(self.device)
 
         # forward
         outputs = self(images, labels, image_padding_mask, lengths)
 
         # prepare loss forward
-        lengths = batch.lengths - 1
+        lengths = (batch.lengths - 1).to(self.device)
         targets = batch.labels[:, 1:].to(self.device)
+
         packed_outputs = pack_padded_sequence(outputs, lengths, True)[0]
         packed_targets = pack_padded_sequence(targets, lengths, True)[0]
-        return {'loss': F.cross_entropy(packed_outputs, packed_targets)}
+
+        loss = F.cross_entropy(packed_outputs, packed_targets)
+
+        results = {
+            'loss': loss,
+            'log': {'Train/Loss': loss.item()},
+        }
+        return results
 
     #########################
     # Validation
@@ -93,18 +105,27 @@ class CE(pl.LightningModule):
         predicts = self.string_tf(pred, pred_len)
         groundtruth = self.string_tf(tgt, tgt_len)
 
-        cer_distances = [self.cer.compute_distance(pred, gt) for pred, gt in zip(predicts, groundtruth)]
-        wer_distances = [self.wer.compute_distance(pred, gt) for pred, gt in zip(predicts, groundtruth)]
+        cer_distances, num_chars = compute_cer(predicts, groundtruth, indistinguish=False)
+        wer_distances, num_words = compute_wer(predicts, groundtruth, indistinguish=False)
 
-        cer_distances = torch.tensor(cer_distances, dtype=torch.float)
-        wer_distances = torch.tensor(wer_distances, dtype=torch.float)
-
-        return {'CER': cer_distances, 'WER': wer_distances}
+        return {'cer_distances': cer_distances,
+                'num_chars': num_chars,
+                'wer_distances': wer_distances,
+                'num_words': num_words}
 
     def validation_epoch_end(self, outputs):
-        CER = torch.stack([x['CER'] for x in outputs]).mean()
-        WER = torch.stack([x['WER'] for x in outputs]).mean()
-        return {'CER': CER, 'WER': WER}
+        cer_distances = torch.tensor(sum([x['cer_distances'] for x in outputs], [])).sum().item()
+        num_chars = torch.tensor(sum([x['num_chars'] for x in outputs], [])).sum().item()
+        wer_distances = torch.tensor(sum([x['wer_distances'] for x in outputs], [])).sum().item()
+        num_words = torch.tensor(sum([x['num_words'] for x in outputs], [])).sum().item()
+        CER = cer_distances / num_chars
+        WER = wer_distances / num_words
+
+        results = {
+            'progress_bar': {'CER': CER, 'WER': WER},
+            'log': {'Validation/CER': CER, 'Validation/WER': WER},
+        }
+        return results
 
     #########################
     # Test
@@ -124,19 +145,27 @@ class CE(pl.LightningModule):
         predicts = self.string_tf(pred, pred_len)
         groundtruth = self.string_tf(tgt, tgt_len)
 
-        cer_distances = [self.cer.compute_distance(pred, gt) for pred, gt in zip(predicts, groundtruth)]
-        wer_distances = [self.wer.compute_distance(pred, gt) for pred, gt in zip(predicts, groundtruth)]
+        cer_distances, num_chars = compute_cer(predicts, groundtruth, indistinguish=False)
+        wer_distances, num_words = compute_wer(predicts, groundtruth, indistinguish=False)
 
-        cer_distances = torch.tensor(cer_distances, dtype=torch.float)
-        wer_distances = torch.tensor(wer_distances, dtype=torch.float)
-
-        return {'CER': cer_distances, 'WER': wer_distances}
+        return {'cer_distances': cer_distances,
+                'num_chars': num_chars,
+                'wer_distances': wer_distances,
+                'num_words': num_words}
 
     def test_epoch_end(self, outputs):
-        CER = torch.stack([x['CER'] for x in outputs]).mean()
-        WER = torch.stack([x['WER'] for x in outputs]).mean()
-        return {'CER': CER, 'WER': WER}
-    
+        cer_distances = torch.tensor(sum([x['cer_distances'] for x in outputs], [])).sum().item()
+        num_chars = torch.tensor(sum([x['num_chars'] for x in outputs], [])).sum().item()
+        wer_distances = torch.tensor(sum([x['wer_distances'] for x in outputs], [])).sum().item()
+        num_words = torch.tensor(sum([x['num_words'] for x in outputs], [])).sum().item()
+        CER = cer_distances / num_chars
+        WER = wer_distances / num_words
+        results = {
+            'progress_bar': {'CER': CER, 'WER': WER},
+            'log': {'Test/CER': CER, 'Test/WER': WER},
+        }
+        return results
+
     #########################
     # DataLoader
     #########################
@@ -197,6 +226,7 @@ if __name__ == "__main__":
     common_parser.add_argument('--profiler', action='store_true', default=False)
     common_parser.add_argument('--max-length', type=int, default=15)
     common_parser.add_argument('--beam-width', type=int, default=1)
+    common_parser.add_argument('--cpu', action='store_true', default=False)
 
     parser = argparse.ArgumentParser(add_help=True)
     subparser = parser.add_subparsers()
@@ -217,7 +247,6 @@ if __name__ == "__main__":
     test_parser.add_argument('--hparams', type=str, default=None)
     test_parser.add_argument('--validation', action='store_true', default=False)
     test_parser.add_argument('--indistinguish', action='store_true', default=False)
-    test_parser.add_argument('--cpu', action='store_true', default=False)
 
     cmdargs = parser.parse_args()
     args = vars(cmdargs)
@@ -228,10 +257,12 @@ if __name__ == "__main__":
                              profiler=args.pop('profiler'),
                              max_epochs=args['max_epochs'],
                              check_val_every_n_epoch=1,
-                             gpus=1)
+                             row_log_interval=1,
+                             gpus=None if args.pop('cpu') else -1)
         config = Config(args.pop('config_path'), **args).config
 
         model = CE(config)
+        print(model)
         trainer.fit(model)
     else:
         model = CE.load_from_checkpoint(checkpoint_path=args.pop('checkpoint'),

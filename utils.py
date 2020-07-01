@@ -16,7 +16,7 @@ import itertools
 import tqdm
 from nltk.util import ngrams, bigrams
 import collections
-from typing import Union
+from typing import Union, List
 
 def update_dict(d, u):
     for k, v in u.items():
@@ -82,7 +82,7 @@ class StringTransform(object):
     def __init__(self, vocab):
         self.vocab = vocab
 
-    def __call__(self, tensor: torch.Tensor, lengths: torch.Tensor):
+    def __call__(self, tensor: torch.Tensor, lengths: torch.Tensor) -> List[List[str]]:
         '''
         Convert a Tensor to a list of Strings
 
@@ -90,6 +90,10 @@ class StringTransform(object):
         -------
         - tensor: [B,T]
         - lengths: [B]
+
+        Returns:
+        --------
+        - List of characters
         '''
         tensor = tensor.cpu()
         lengths = lengths.cpu()
