@@ -79,9 +79,7 @@ class HandcraftFeature(object):
         return handcraft_img
 
 class StringTransform(object):
-    def __init__(self, vocab, batch_first=True):
-        self.batch_first = batch_first
-        self.EOS_int = vocab.char2int(vocab.EOS)
+    def __init__(self, vocab):
         self.vocab = vocab
 
     def __call__(self, tensor: torch.Tensor, lengths: torch.Tensor):
@@ -93,14 +91,11 @@ class StringTransform(object):
         - tensor: [B,T]
         - lengths: [B]
         '''
-        if not self.batch_first:
-            tensor = tensor.transpose(0,1)
-
         tensor = tensor.cpu()
         lengths = lengths.cpu()
 
         strs = []
-        for i, length in enumerate(lengths):
+        for i, length in enumerate(lengths.tolist()):
             chars = list(map(self.vocab.int2char, tensor[i, :length].tolist()))
             chars = self.vocab.process_label_invert(chars)
             strs.append(chars)
@@ -309,7 +304,7 @@ class CTCStringTransform(object):
         self.batch_first = batch_first
         self.vocab = vocab
 
-    def __call__(self, tensor: torch.tensor):
+    def __call__(self, tensor: torch.Tensor):
         '''
         Convert a Tensor to a list of Strings
         '''

@@ -1,10 +1,8 @@
 defaults:
-    vocab: vnondb_vocab_flatten
+    vocab: vnondb_vocab
     dataset: vnondb
     cnn: resnet
     model: tf
     optimizer: adam
     lr_scheduler: plateau
     save_by: CER # One of CER, WER, Loss
-    batch_size: 16
-    max_epochs: 50

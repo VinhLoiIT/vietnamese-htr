@@ -3,7 +3,7 @@ dataset:
   args:
 
   scale_height: 96
-  min_width: 7.0
+  min_width: 128
 
   train:
     csv: data/VNOnDB/word/train_word_new.csv

@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torchvision.transforms as transforms
 from PIL import ImageOps
-from .utils import ScaleImageByHeight
+from utils import ScaleImageByHeight
 
 class ImageTransform(object):
     def __init__(self, augmentation: bool = False, **kwargs):

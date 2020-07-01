@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from queue import PriorityQueue
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from .attention import get_attention
 from .positional_encoding import PositionalEncoding1d, PositionalEncoding2d, A2DPE
 from .stn import STN
@@ -35,7 +35,7 @@ class _BeamSearchNode(object):
         '''
         Shapes:
         -------
-            - current_char: [V]
+        - current_char: [V]
         '''
         new_node = _BeamSearchNode(
             self.prev_prob + [self.current_char],
@@ -54,15 +54,20 @@ class Model(nn.Module):
         self.cnn = cnn
         self.vocab = vocab
 
-    def embed_image(self, images: torch.Tensor) -> torch.Tensor:
+    def embed_image(
+        self,
+        images: torch.Tensor,
+        image_padding_masks: Optional[torch.Tensor],
+    ) -> torch.Tensor:
         '''
         Shapes:
         -------
-            - images: [B,C,H,W]
+        - images: [B,C,H,W]
+        - image_padding_masks: [B,H,W]
 
         Returns:
         --------
-            - image_features: [B,S,C']
+        - image_features: [B,S,C']
         '''
         image_features = self.cnn(images) # [B, C', H', W']
         batch_size, height, width = images.size(0), images.size(2), images.size(3)
@@ -75,61 +80,100 @@ class Model(nn.Module):
         '''
         Shapes:
         -------
-            - text: [B,T]
+        - text: [B,T]
 
         Returns:
         --------
-            - text: [B,T,V]
+        - text: [B,T,V]
         '''
         text = F.one_hot(text, self.vocab.size).float().to(text.device)
         return text
 
-    def forward(self, images: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        images: torch.Tensor,
+        labels: torch.Tensor,
+        image_padding_masks: Optional[torch.Tensor] = None,
+        label_padding_masks: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         '''
         Shapes:
         -------
-            - images: [B,C,H,W]
-            - labels: [B,T]
+        - images: [B,C,H,W]
+        - labels: [B,T]
+        - image_padding_masks: [B,H,W]
+        - label_padding_masks: [B,T]
 
         Returns:
-            - outputs: [B,T,V]
+        ----
+        - outputs: [B,T,V]
         '''
-        images = self.embed_image(images) # [B,S,C']
-        labels = self.embed_text(labels) # [B,T,V]
-        outputs = self._forward_decode(images, labels) # [B,T,V]
-        return outputs
+        raise NotImplementedError()
 
-    def _forward_decode(self, embed_image: torch.Tensor, embed_text: torch.Tensor) -> torch.Tensor:
+    def decode(
+        self,
+        images: torch.Tensor,
+        max_length: int,
+        beam_width: int,
+        image_padding_masks: Optional[torch.Tensor]
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         '''
         Shapes:
         -------
-            - embed_image: [B,S,E]
-            - embed_text: [B,T,E]
+        - images: [B,C,H,W]
+        - image_padding_masks: [B,H,W]
 
         Returns:
-            - outputs: [B,T,V]
+        --------
+        - outputs: [B,T]
+        - lengths: [B]
+        '''
+        if beam_width > 1:
+            return self.beamsearch(images, max_length, beam_width, image_padding_masks=image_padding_masks)
+        else:
+            return self.greedy(images, max_length, image_padding_masks=image_padding_masks)
+
+    def greedy(
+        self,
+        images: torch.Tensor,
+        max_length: int,
+        image_padding_masks: Optional[torch.Tensor],
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        '''
+        Shapes:
+        -------
+        - images: [B,C,H,W]
+
+        Returns:
+        --------
+        - outputs: [B,T]
+        - lengths: [B]
         '''
         pass
 
-    def greedy(self, images: torch.Tensor) -> torch.Tensor:
+    def beamsearch(
+        self,
+        images: torch.Tensor,
+        max_length: int,
+        beam_width: int,
+        image_padding_masks: Optional[torch.Tensor]
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         '''
         Shapes:
         -------
-            - images: [B,C,H,W]
-        Returns:
-            - outputs: [B,T]
-        '''
-        pass
+        - images: [B,C,H,W]
 
-    def beamsearch(self, images: torch.Tensor, beam_width: int) -> torch.Tensor:
+        Returns:
+        --------
+        - outputs: [B,T]
+        - lengths: [B]
+        '''
         pass
 
 class ModelTF(Model):
     def __init__(self, cnn, vocab, **config):
         super().__init__(cnn, vocab)
         self.register_buffer('start_index', torch.tensor(vocab.SOS_IDX, dtype=torch.long))
-        self.max_length = config['max_length']
-        self.beam_width = config.get('beam_width', None)
 
         self.Ic = nn.Linear(cnn.n_features, config['attn_size'])
         self.Vc = nn.Linear(vocab.size, config['attn_size'])
@@ -171,15 +215,20 @@ class ModelTF(Model):
         else:
             self.pe_image = nn.Identity()
 
-    def embed_image(self, images: torch.Tensor) -> torch.Tensor:
+    def embed_image(
+        self,
+        images: torch.Tensor,
+        image_padding_masks: Optional[torch.Tensor]
+    ) -> torch.Tensor:
         '''
         Shapes:
         -------
-            - images: [B,C,H,W]
+        - images: [B,C,H,W]
+        - image_padding_masks: [B,H,W]
 
         Returns:
         --------
-            - image_features: [B,S,E]
+        - image_features: [B,S,E]
         '''
         image_features = self.stn(images) # [B,C',H',W']
         image_features = self.cnn(image_features) # [B, C', H', W']
@@ -196,46 +245,65 @@ class ModelTF(Model):
         image_features = image_features.transpose(0, 1) # [B,S,E]
         return image_features
 
-    def _forward_decode(self, embed_image: torch.Tensor, embed_text: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        images: torch.Tensor,
+        labels: torch.Tensor,
+        image_padding_masks: Optional[torch.Tensor] = None,
+        label_padding_masks: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         '''
         Shapes:
         -------
-            - embed_image: [B,S,E]
-            - embed_text: [B,T,V]
+        - images: [B,C,H,W]
+        - labels: [B,T]
+        - image_padding_masks: [B,H,W]
+        - label_padding_masks: [B,T]
 
         Returns:
-        --------
-            - outputs: [B,T,V]
+        ----
+        - outputs: [B,T,V]
         '''
+        embed_image = self.embed_image(images, image_padding_masks) # [B,S,C']
         embed_image = embed_image.transpose(0, 1) # [S,B,E]
+
+        embed_text = self.embed_text(labels) # [B,T,V]
         embed_text = self.Vc(embed_text) # [B,T,E]
         embed_text = self.pe_text(embed_text) # [B,T,E]
         embed_text = embed_text.transpose(0, 1) # [T,B,E]
 
         attn_mask = nn.Transformer.generate_square_subsequent_mask(None, embed_text.size(0)).to(embed_text.device)
         outputs = self.decoder(embed_text, embed_image, tgt_mask=attn_mask)
-        outputs = outputs.transpose(0,1)
+        outputs = outputs.transpose(0, 1)
         outputs = self.character_distribution(outputs)
         return outputs
 
-    def greedy(self, images: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def greedy(
+        self,
+        images: torch.Tensor,
+        max_length: int,
+        image_padding_masks: Optional[torch.Tensor],
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         '''
         Shapes:
         -------
-            - images: [B,C,H,W]
+        - images: [B,C,H,W]
+        - image_padding_masks: [B,H,W]
+
         Returns:
-            - outputs: [B,T]
-            - lengths: [B]
+        --------
+        - outputs: [B,T]
+        - lengths: [B]
         '''
         batch_size = len(images)
-        images = self.embed_image(images) # [B,S,E]
+        images = self.embed_image(images, image_padding_masks) # [B,S,E]
 
         predicts = self.start_index.expand(batch_size).unsqueeze(-1) # [B,1]
         predicts = self.embed_text(predicts) # [B,1,V]
 
         end_flag = torch.zeros(batch_size, dtype=torch.bool)
-        lengths = torch.ones(batch_size, dtype=torch.long).fill_(self.max_length)
-        for t in range(self.max_length):
+        lengths = torch.ones(batch_size, dtype=torch.long).fill_(max_length)
+        for t in range(max_length):
             output = self.inference_step(images, predicts) # [B,V]
             output = F.softmax(output, dim=-1) # [B,V]
             predicts = torch.cat([predicts, output.unsqueeze(1)], dim=1) # [B,T,V]
@@ -254,9 +322,9 @@ class ModelTF(Model):
         '''
         Shapes:
         -------
-            - embedded_image: [B,S,E]
-            - predicts: [B,T,V]
-            - logits: [B,V]
+        - embedded_image: [B,S,E]
+        - predicts: [B,T,V]
+        - logits: [B,V]
         '''
         text = self.Vc(predicts) # [B,T,E]
         text = self.pe_text(text) # [B,T,E]
@@ -272,10 +340,10 @@ class ModelTF(Model):
         '''
         Shapes:
         -------
-            - images: [B,C,H,W]
+        - images: [B,C,H,W]
         Returns:
         --------
-            - outputs: [B,T]
+        - outputs: [B,T]
         '''
 
         def decode_one_sample(image: torch.Tensor, start: torch.Tensor, max_length: int, beam_width: int):
@@ -367,11 +435,11 @@ class ModelTFA2D(ModelTF):
         '''
         Shapes:
         -------
-            - images: [B,C,H,W]
+        - images: [B,C,H,W]
 
         Returns:
         --------
-            - image_features: [B,S,E]
+        - image_features: [B,S,E]
         '''
         image_features = self.cnn(images) # [B, C', H', W']
         image_features = self.a2d_pe_image(image_features) # [B,C',H',W']
@@ -413,12 +481,12 @@ class ModelRNN(Model):
         '''
         Shapes:
         -------
-            - embed_image: tensor of [B, S, C]
-            - embed_text: tensor of [B, T, V], each target has <start> at beginning of the word
+        - embed_image: tensor of [B, S, C]
+        - embed_text: tensor of [B, T, V], each target has <start> at beginning of the word
 
         Returns:
         --------
-            - outputs: tensor of [B, T, V]
+        - outputs: tensor of [B, T, V]
         '''
         batch_size = embed_image.size(0)
         max_length = embed_text.size(1)
@@ -447,15 +515,22 @@ class ModelRNN(Model):
 
         return outputs
 
-    def greedy(self, images: torch.Tensor, output_weights: bool = False) -> torch.Tensor:
+    def greedy(
+        self,
+        images: torch.Tensor,
+        max_length: int,
+        output_weights: bool = False
+    ) -> torch.Tensor:
         '''
         Shapes:
         -------
-            - images: [B,C,H,W]
-            - start: [B]
-            - max_length: int
+        - images: [B,C,H,W]
+        - start: [B]
+        - max_length: int
+
         Returns:
-            - outputs: [B,T]
+        --------
+        - outputs: [B,T]
         '''
         embedded_image = self.embed_image(images) # [B,S,C']
 
