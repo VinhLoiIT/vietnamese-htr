@@ -60,17 +60,17 @@ class CE(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         # prepare forward
-        images = batch.images
-        labels = batch.labels[:, :-1]
-        image_padding_mask = batch.image_padding_mask
-        lengths = batch.lengths
+        images = batch.images.to(self.device)
+        labels = batch.labels[:, :-1].to(self.device)
+        image_padding_mask = batch.image_padding_mask.to(self.device)
+        lengths = batch.lengths.to(self.device)
 
         # forward
         outputs = self(images, labels, image_padding_mask, lengths)
 
         # prepare loss forward
         lengths = batch.lengths - 1
-        targets = batch.labels[:, 1:]
+        targets = batch.labels[:, 1:].to(self.device)
         packed_outputs = pack_padded_sequence(outputs, lengths, True)[0]
         packed_targets = pack_padded_sequence(targets, lengths, True)[0]
         return {'loss': F.cross_entropy(packed_outputs, packed_targets)}
@@ -81,13 +81,13 @@ class CE(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         # prepare decode
-        images = batch.images
-        image_padding_mask = batch.image_padding_mask
+        images = batch.images.to(self.device)
+        image_padding_mask = batch.image_padding_mask.to(self.device)
 
         # decode
         pred, pred_len = self.model.decode(images, self.max_length,
                                            self.beam_width, image_padding_mask)
-        tgt, tgt_len = batch.labels[:, 1:], batch.lengths - 1
+        tgt, tgt_len = batch.labels[:, 1:].to(self.device), batch.lengths - 1
 
         # convert to strings
         predicts = self.string_tf(pred, pred_len)
@@ -112,13 +112,13 @@ class CE(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         # prepare decode
-        images = batch.images
-        image_padding_mask = batch.image_padding_mask
+        images = batch.images.to(self.device)
+        image_padding_mask = batch.image_padding_mask.to(self.device)
 
         # decode
         pred, pred_len = self.model.decode(images, self.max_length,
                                            self.beam_width, image_padding_mask)
-        tgt, tgt_len = batch.labels[:, 1:], batch.lengths - 1
+        tgt, tgt_len = batch.labels[:, 1:].to(self.device), batch.lengths - 1
 
         # convert to strings
         predicts = self.string_tf(pred, pred_len)
@@ -227,7 +227,8 @@ if __name__ == "__main__":
                              resume_from_checkpoint=args.pop('checkpoint'),
                              profiler=args.pop('profiler'),
                              max_epochs=args['max_epochs'],
-                             check_val_every_n_epoch=1,)
+                             check_val_every_n_epoch=1,
+                             gpus=1)
         config = Config(args.pop('config_path'), **args).config
 
         model = CE(config)
