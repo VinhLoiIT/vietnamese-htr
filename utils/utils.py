@@ -29,7 +29,7 @@ def update_dict(d, u):
 
 
 def length_to_padding_mask(lengths: torch.Tensor) -> torch.Tensor:
-    mask = torch.arange(lengths.max()).repeat(lengths.size(0), 1) >= lengths.unsqueeze_(1)
+    mask = torch.arange(lengths.max()).type_as(lengths).repeat(lengths.size(0), 1) >= lengths.unsqueeze_(1)
     return mask
 
 class Dilation(object):
