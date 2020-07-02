@@ -4,6 +4,11 @@ from torch.nn.utils.rnn import pad_sequence
 from typing import List, Tuple, Optional
 
 
+__all__ = [
+    'collate_images', 'collate_text'
+]
+
+
 def collate_images(
     images: List[torch.Tensor],
     pad_value: torch.Tensor,
@@ -20,6 +25,7 @@ def collate_images(
 
     if pad_value.size(0) == 1:
         pad_value = pad_value.repeat(3)
+    pad_value = pad_value.float()
 
     collated_images = pad_value.repeat(len(images), max_H, max_W, 1)
     collated_images = collated_images.permute(0,3,1,2)
@@ -32,70 +38,29 @@ def collate_images(
     return collated_images, padding_masks
 
 
-class CollateImageWrapper:
-    def __init__(
-        self,
-        batch,
-        pad_value,
-        max_size
-        ):
-        '''
-        Shapes:
-        -------
-        batch: list of
-            - image_path: string path of image
-            - image: tensor of [C, H, W]
-        pad_value: value for padding
-        max_size: (max_H, max_W)
+def collate_text(
+    text: List[torch.Tensor],
+    pad_value: Optional[float] = 0,
+    max_length: Optional[int] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    '''
+    Params:
+    -------
+    - text: list of [T*]
+    - pad_value: padding value
+    - max_length: max length of padded text. If None, it will be calculated from `text`
 
-        Returns:
-        --------
-        - images: tensor of [B, C, max_H, max_W]
-        - size: tensor of [B, 2]
-        '''
-        # images: [B, 3, H, W]
-        self.paths, images = zip(*batch)
-        self.images, self.masks = collate_images(images, pad_value, max_size)
+    Returns:
+    --------
+    - collated_text: [B,T]
+    - lengths: [B]
+    '''
+    batch_size = len(text)
 
-    def pin_memory(self):
-        self.images.pin_memory()
-        self.masks.pin_memory()
-        return self
+    labels = pad_sequence(text, batch_first=True, padding_value=pad_value)
+    if max_length is None:
+        lengths = torch.tensor([len(label) for label in text])
+    else:
+        lengths = torch.ones(batch_size).fill_(max_length)
 
-
-class CollateWrapper:
-    def __init__(
-        self,
-        batch,
-        max_size: Optional[Tuple[int, int]],
-        pad_value = torch.tensor([0.]),
-    ):
-        '''
-        Shapes:
-        -------
-        - batch: list of 2-tuples:
-          - image: tensor of [C, H, W]
-          - label: tensor of [T*] where T* varies from labels and includes '<start>' and '<end>' at both ends
-        - pad_value: value for padding
-        - max_size: `(max_H, max_W)` or None. If None, it would be the largest size of the batch
-
-        Returns:
-        --------
-        - images: tensor of [B, C, max_H, max_W]
-        - size: tensor of [B, 2]
-        - labels: tensor of [B,max_length,1]
-        - length: tensor of [B]
-        '''
-
-        batch_size = len(batch)
-        batch.sort(key=lambda sample: len(sample[1]), reverse=True)
-        image_samples, label_samples = list(zip(*batch))
-
-        self.images, self.image_padding_mask = collate_images(image_samples, pad_value, max_size)
-        self.lengths = torch.tensor([len(label) for label in label_samples])
-        self.labels = pad_sequence(label_samples, batch_first=True)
-
-    def pin_memory(self):
-        self.images.pin_memory()
-        self.labels.pin_memory()
-        return self
+    return labels, lengths

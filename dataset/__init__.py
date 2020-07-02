@@ -4,4 +4,4 @@ from .rimes import RIMESVocab
 from .vnondb import VNOnDBVocab, VNOnDBVocabFlatten
 from .cinnamon import CinnamonVocab
 from .dataset import HTRDataset
-from .collate import CollateWrapper, CollateImageWrapper
+from .collate import collate_text, collate_images

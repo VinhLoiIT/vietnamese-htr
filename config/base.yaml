@@ -2,7 +2,5 @@ defaults:
     vocab: vnondb_vocab
     dataset: vnondb
     cnn: resnet
-    model: tf
-    optimizer: adam
-    lr_scheduler: plateau
+    lr: 1.e-3
     save_by: CER # One of CER, WER, Loss

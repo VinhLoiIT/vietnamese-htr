@@ -1,7 +1,8 @@
 from typing import List, Tuple
 
+import torch
 import editdistance as ed
-from pytorch_lightning.metrics import NumpyMetric
+from pytorch_lightning.metrics import TensorMetric
 
 __all__ = [
     'compute_cer',
@@ -10,12 +11,13 @@ __all__ = [
     'WordErrorRate',
 ]
 
+Char = List[str]
 
 def compute_cer(
-    predicts: List[List[str]],
-    targets: List[List[str]],
+    predicts: List[Char],
+    targets: List[Char],
     indistinguish: bool
-) -> Tuple[List[int], List[int]]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     '''
     Calculate CER distance between two strings or two lists of strings
 
@@ -33,16 +35,20 @@ def compute_cer(
     assert type(predicts) == type(targets), 'predicts and targets must be the same type'
     assert len(predicts) == len(targets), 'predicts and targets must have the same length'
 
-    distances = [ed.distance(predict, target) for predict, target in zip(predicts, targets)]
-    num_references = list(map(len, targets))
+    if indistinguish:
+        predicts = [list(map(str.lower, predict)) for predict in predicts]
+        targets = [list(map(str.lower, target)) for target in targets]
+
+    distances = torch.tensor([ed.distance(predict, target) for predict, target in zip(predicts, targets)])
+    num_references = torch.tensor(list(map(len, targets)))
     return distances, num_references
 
 
 def compute_wer(
-    predicts: List[List[str]],
-    targets: List[List[str]],
+    predicts: List[Char],
+    targets: List[Char],
     indistinguish: bool
-) -> Tuple[List[int], List[int]]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     '''
     Calculate CER distance between two strings or two lists of strings
 
@@ -60,6 +66,10 @@ def compute_wer(
     assert type(predicts) == type(targets), 'predicts and targets must be the same type'
     assert len(predicts) == len(targets), 'predicts and targets must have the same length'
 
+    if indistinguish:
+        predicts = [list(map(str.lower, predict)) for predict in predicts]
+        targets = [list(map(str.lower, target)) for target in targets]
+
     distances = []
     num_references = []
     for predict, target in zip(predicts, targets):
@@ -67,11 +77,14 @@ def compute_wer(
         target = ''.join(target).split(' ')
         distances.append(ed.distance(predict, target))
         num_references.append(len(target))
-    
+
+    distances = torch.tensor(distances)
+    num_references = torch.tensor(num_references)
+
     return distances, num_references
 
 
-class CharacterErrorRate(NumpyMetric):
+class CharacterErrorRate(TensorMetric):
     def __init__(self, indistinguish: bool = False):
         super().__init__('CER')
         self.indistinguish = indistinguish
@@ -79,7 +92,7 @@ class CharacterErrorRate(NumpyMetric):
     def forward(self, predicts, targets):
         return compute_cer(predicts, targets, self.indistinguish)
 
-class WordErrorRate(NumpyMetric):
+class WordErrorRate(TensorMetric):
     def __init__(self, indistinguish: bool = False):
         super().__init__('WER')
         self.indistinguish = indistinguish

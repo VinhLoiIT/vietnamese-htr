@@ -1,8 +1,0 @@
-model:
-  name: rnn
-  args:
-    hidden_size: 256
-    max_length: 15
-    attn_size: 256
-    attention: additive
-    teacher_forcing_ratio: 0.5
