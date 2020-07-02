@@ -240,7 +240,7 @@ class ModelCE(pl.LightningModule):
 
         results = {
             'progress_bar': {'CER': CER, 'WER': WER},
-            'log': {f'{tag}/CER': CER, f'{tag}/WER': WER},
+            'log': {f'{tag}/CER': CER, f'{tag}/WER': WER, 'step': self.current_epoch},
         }
         return results
 
