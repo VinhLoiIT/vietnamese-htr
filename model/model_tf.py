@@ -62,20 +62,20 @@ class ModelTF(ModelCE):
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        parser.add_argument('--max-length', type=int, default=15)
-        parser.add_argument('--beam-width', type=int, default=1)
-        parser.add_argument('--batch-size', type=int, default=16)
+        parser.add_argument('--max_length', type=int, default=15)
+        parser.add_argument('--beam_width', type=int, default=1)
+        parser.add_argument('--batch_size', type=int, default=16)
         parser.add_argument('--smoothing', type=float, default=0)
-        parser.add_argument('--attn-size', type=int, default=512)
+        parser.add_argument('--attn_size', type=int, default=512)
         parser.add_argument('--nhead', type=int, default=8)
-        parser.add_argument('--dim-feedforward', type=int, default=4096)
+        parser.add_argument('--dim_feedforward', type=int, default=4096)
         parser.add_argument('--dropout', type=float, default=0.1)
-        parser.add_argument('--encoder-nlayers', type=int, default=0)
-        parser.add_argument('--decoder-nlayers', type=int, default=1)
+        parser.add_argument('--encoder_nlayers', type=int, default=0)
+        parser.add_argument('--decoder_nlayers', type=int, default=1)
         parser.add_argument('--stn', action='store_true', default=False)
         parser.add_argument('--aspp', action='store_true', default=False)
-        parser.add_argument('--pe-text', action='store_true', default=False)
-        parser.add_argument('--pe-image', action='store_true', default=False)
+        parser.add_argument('--pe_text', action='store_true', default=False)
+        parser.add_argument('--pe_image', action='store_true', default=False)
         return parser
 
     def __init__(self, config):
