@@ -3,6 +3,8 @@ import pytorch_lightning as pl
 import argparse
 from config import Config, initialize
 from typing import Any
+import os
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 
 if __name__ == '__main__':
@@ -31,7 +33,17 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    trainer = pl.Trainer.from_argparse_args(args)
+    checkpoint_callback = ModelCheckpoint(
+        filepath=None,
+        save_top_k=1,
+        verbose=True,
+        monitor='WER',
+        mode='min',
+        prefix=''
+    )
+
+
+    trainer = pl.Trainer.from_argparse_args(args, checkpoint_callback=checkpoint_callback)
 
     dict_args = vars(args)
 

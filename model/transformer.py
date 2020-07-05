@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import copy
+from torch.nn.init import xavier_uniform_
 
 from torch import Tensor
 from typing import Optional
@@ -150,6 +151,8 @@ class TransformerEncoder(nn.Module):
         self.num_layers = num_layers
         self.norm = norm
 
+        _reset_parameters(self)
+
     def forward(self, src, mask=None, src_key_padding_mask=None):
         # type: (Tensor, Optional[Tensor], Optional[Tensor]) -> Tensor
         r"""Pass the input through the encoder layers in turn.
@@ -195,6 +198,8 @@ class TransformerDecoder(nn.Module):
         self.layers = _get_clones(decoder_layer, num_layers)
         self.num_layers = num_layers
         self.norm = norm
+
+        _reset_parameters(self)
 
     def forward(self, tgt, memory, tgt_mask=None,
                 memory_mask=None, tgt_key_padding_mask=None,
@@ -384,3 +389,9 @@ def _get_activation_fn(activation):
         return F.gelu
 
     raise RuntimeError("activation should be relu/gelu, not {}".format(activation))
+
+def _reset_parameters(module):
+    r"""Initiate parameters in the transformer model."""
+    for p in module.parameters():
+        if p.dim() > 1:
+            xavier_uniform_(p)

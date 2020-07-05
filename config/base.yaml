@@ -3,4 +3,4 @@ defaults:
     dataset: vnondb
     cnn: resnet
     lr: 1.e-3
-    save_by: CER # One of CER, WER, Loss
+    save_by: WER # One of CER, WER, Loss

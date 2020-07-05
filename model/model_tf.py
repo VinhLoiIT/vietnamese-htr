@@ -92,8 +92,8 @@ class ModelTF(ModelCE):
                                                 config['nhead'],
                                                 dim_feedforward=config['dim_feedforward'],
                                                 dropout=config['dropout'])
-        self.decoder = TransformerDecoder(decoder_layer, config['decoder_nlayers'])
-        # TODO: add layer norm
+        decoder_norm = nn.LayerNorm(config['attn_size'])
+        self.decoder = TransformerDecoder(decoder_layer, config['decoder_nlayers'], decoder_norm)
 
         if config.get('use_encoder', False):
             encoder_layer = TransformerEncoderLayer(
@@ -102,7 +102,8 @@ class ModelTF(ModelCE):
                 dim_feedforward=config['dim_feedforward'],
                 dropout=config['dropout'],
             )
-            self.encoder = TransformerEncoder(encoder_layer, config['encoder_nlayers'])
+            encoder_norm = nn.LayerNorm(config['attn_size'])
+            self.encoder = TransformerEncoder(encoder_layer, config['encoder_nlayers'], encoder_norm)
         else:
             self.encoder = nn.Identity()
 
@@ -283,7 +284,7 @@ class ModelTF(ModelCE):
         text = self.Vc(predicts) # [B,T,E]
         text = self.pe_text(text) # [B,T,E]
         text = text.transpose(0,1) # [T,B,E]
-        attn_mask = generate_square_subsequent_mask(len(text)).to(text.device)
+        attn_mask = generate_square_subsequent_mask(text.size(0)).to(text.device)
         embedded_image = embedded_image.transpose(0, 1) # [S,B,E]
         output = self.decoder(text, embedded_image, tgt_mask=attn_mask) # [T,B,E]
         output = output.transpose_(0, 1) # [B,T,E]
@@ -377,3 +378,4 @@ class ModelTF(ModelCE):
     #     lengths = torch.tensor(lengths, dtype=torch.long)
 
     #     return decoded_batch, lengths
+

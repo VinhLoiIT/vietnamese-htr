@@ -186,7 +186,7 @@ class ModelCE(pl.LightningModule):
 
         results = {
             'loss': loss,
-            'log': {'Train/Loss': loss.item()},
+            'log': {'Train/Loss': loss},
         }
         return results
 
@@ -231,12 +231,12 @@ class ModelCE(pl.LightningModule):
         return self._shared_metrics(outputs, 'Test')
 
     def _shared_metrics(self, outputs, tag: str):
-        cer_distances = torch.cat([x['cer_distances'] for x in outputs], dim=0).sum().item()
-        num_chars = torch.cat([x['num_chars'] for x in outputs], dim=0).sum().item()
-        wer_distances = torch.cat([x['wer_distances'] for x in outputs], dim=0).sum().item()
-        num_words = torch.cat([x['num_words'] for x in outputs], dim=0).sum().item()
-        CER = cer_distances / num_chars
-        WER = wer_distances / num_words
+        cer_distances = torch.cat([x['cer_distances'] for x in outputs], dim=0).sum().float()
+        num_chars = torch.cat([x['num_chars'] for x in outputs], dim=0).sum()
+        wer_distances = torch.cat([x['wer_distances'] for x in outputs], dim=0).sum().float()
+        num_words = torch.cat([x['num_words'] for x in outputs], dim=0).sum()
+        CER = cer_distances / num_chars.item()
+        WER = wer_distances / num_words.item()
 
         results = {
             'progress_bar': {'CER': CER, 'WER': WER},
