@@ -14,17 +14,17 @@ Vietnamese handwritten text recognition system
 
 To train Transformer (see config params at `model/model_tf.py`):
 ```bash
-python train.py tf config/base.yaml --gpus -1 --max_epochs 50
+python train.py tf config/base.yaml --gpus -1 --max_epochs 50 --deterministic True
 ```
 
 To train RNN (see config params at `model/model_rnn.py`):
 ```bash
-python train.py rnn config/base.yaml --gpus -1 --max_epochs 50
+python train.py rnn config/base.yaml --gpus -1 --max_epochs 50 --deterministic True
 ```
 
 Example train TF
 ```
-python train.py tf config/base.yaml --gpus -1 --max_epochs 50 --attn_size 512 --dim_feedforward 4096 --encoder_nlayers 2 --decoder_nlayers 2 --seed 9498 --decoder_nlayers 2 --stn --pe_text --pe_image
+python train.py tf config/base.yaml --gpus -1 --max_epochs 50 --deterministic True --attn_size 512 --dim_feedforward 4096 --encoder_nlayers 2 --decoder_nlayers 2 --seed 9498 --decoder_nlayers 2 --stn --pe_text --pe_image
 ```
 
 
@@ -33,7 +33,8 @@ See Pytorch Lightning Trainer config at: [Pytorch Lightning Doc](https://pytorch
 --fast_dev_run True                             # Run 1 batch on train, 1 batch on val to debug
 --profiler True                                 # Log time (might slow)
 --max_epochs 50                                 # Train for 50 epochs
---resume_from_checkpoint [PATH_TO_CKPT_FILE]    # Resume training from checkpoint  
+--resume_from_checkpoint [PATH_TO_CKPT_FILE]    # Resume training from checkpoint
+--deterministic True                            # Reproducible
 ```
 
 ## Test
