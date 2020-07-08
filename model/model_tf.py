@@ -107,22 +107,22 @@ class ModelTF(ModelCE):
         else:
             self.encoder = nn.Identity()
 
-        if config.get('use_stn', False):
+        if config.get('stn', False):
             self.stn = STN(in_channels=3)
         else:
             self.stn = nn.Identity()
 
-        if config.get('use_aspp', False):
+        if config.get('aspp', False):
             self.aspp = ASPP(self.cnn.n_features, self.cnn.n_features)
         else:
             self.aspp = nn.Identity()
 
-        if config.get('use_pe_text', False):
+        if config.get('pe_text', False):
             self.pe_text = PositionalEncoding1d(config['attn_size'], batch_first=True)
         else:
             self.pe_text = nn.Identity()
 
-        if config.get('use_pe_image', False):
+        if config.get('pe_image', False):
             self.pe_image = PositionalEncoding2d(config['attn_size'])
         else:
             self.pe_image = nn.Identity()
