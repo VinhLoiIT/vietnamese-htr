@@ -9,6 +9,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--num_workers', type=int, default=8)
+    parser.add_argument('--validation', action='store_true', default=False)
 
     # Add trainer options to parser
     parser = pl.Trainer.add_argparse_args(parser)
@@ -47,4 +48,7 @@ if __name__ == '__main__':
                                         )
                                     #    hparams_file=dict_args.pop('hparams'))
     model.eval()
-    trainer.test(model)
+    if dict_args['validation']:
+        trainer.test(model, model.val_dataloader())
+    else:
+        trainer.test(model)
