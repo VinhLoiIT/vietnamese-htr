@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from dataset import HTRDataset, collate_images, collate_text
 from metrics import compute_cer, compute_wer
 from utils import ImageTransform, length_to_padding_mask
+from loss import LabelSmoothingCrossEntropy
 
 __all__ = [
     'ModelCE'
@@ -34,6 +35,11 @@ class ModelCE(pl.LightningModule):
         self.config = config
         self.max_length = config['max_length']
         self.beam_width = config['beam_width']
+
+        if config.get('smoothing', 0) == 0:
+            self.loss_fn = nn.CrossEntropyLoss()
+        else:
+            self.loss_fn = LabelSmoothingCrossEntropy(config['smoothing'])
 
     def embed_image(
         self,
@@ -184,7 +190,7 @@ class ModelCE(pl.LightningModule):
         packed_outputs = pack_padded_sequence(outputs, lengths - 1, True)[0]
         packed_targets = pack_padded_sequence(targets, lengths - 1, True)[0]
 
-        loss = F.cross_entropy(packed_outputs, packed_targets)
+        loss = self.loss_fn(packed_outputs, packed_targets)
 
         results = {
             'loss': loss,
