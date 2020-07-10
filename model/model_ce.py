@@ -288,9 +288,6 @@ class ModelCE(pl.LightningModule):
         return val_loader
 
     def test_dataloader(self):
-        # if validation:
-        #     dataset = self.prepare_dataset('validation', self.vocab, self.config, self.transform.test)
-        # else:
         dataset = self.prepare_dataset('test', self.vocab, self.config, self.transform.test)
 
         test_loader = DataLoader(

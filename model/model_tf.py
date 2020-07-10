@@ -95,7 +95,7 @@ class ModelTF(ModelCE):
         decoder_norm = nn.LayerNorm(config['attn_size'])
         self.decoder = TransformerDecoder(decoder_layer, config['decoder_nlayers'], decoder_norm)
 
-        if config.get('use_encoder', False):
+        if config.get('encoder_nlayers', 0) > 0:
             encoder_layer = TransformerEncoderLayer(
                 d_model=config['attn_size'],
                 nhead=config['nhead'],
@@ -260,14 +260,10 @@ class ModelTF(ModelCE):
         images = images.transpose(-2, -1) # [B,E,W,H]
         images = images.reshape(B, E, W*H) # [B, E, S=W*H]
         images = images.permute(2,0,1) # [S,B,E]
-        images = self.encoder(images) # [S,B,E]
+        images, enc_weights = self.encoder(images) # [S,B,E]
+        # TODO: reshape weights for encoder
+
         images = images.transpose(0,1) # [B,S,E]
-        
-        if output_weights and isinstance(images, tuple):
-            images, enc_weights = images
-            # TODO: reshape weights for encoder
-        else:
-            enc_weights = None
 
         predicts = self.start_index.expand(batch_size).unsqueeze(-1) # [B,1]
         predicts = self.embed_text(predicts) # [B,1,V]
