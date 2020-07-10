@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence
 
+from config import initialize
 from metrics import compute_cer, compute_wer
 from utils import StringTransform, length_to_padding_mask
 
@@ -19,7 +20,6 @@ from .transformer import (Transformer, TransformerDecoder,
                           TransformerDecoderLayer, TransformerEncoder,
                           TransformerEncoderLayer,
                           generate_square_subsequent_mask)
-from config import initialize
 
 __all__ = ['ModelTF']
 
@@ -142,7 +142,7 @@ class ModelTF(ModelCE):
 
         Returns:
         --------
-        - image_features: [B,S,E]
+        - image_features: [B,E,H,W]
         '''
         image_features = self.stn(images) # [B,C',H',W']
         image_features = self.cnn(image_features) # [B, C', H', W']
@@ -151,12 +151,6 @@ class ModelTF(ModelCE):
         image_features = self.Ic(image_features) # [B,H',W',E]
         image_features = image_features.permute(0,3,1,2) # [B, E, H', W']
         image_features = self.pe_image(image_features) # [B,E,H',W']
-        B, E, H, W = image_features.shape
-        image_features = image_features.transpose(-2, -1) # [B,E,W',H']
-        image_features = image_features.reshape(B, E, W*H) # [B, E, S=W'xH']
-        image_features = image_features.permute(2,0,1) # [S,B,E]
-        image_features = self.encoder(image_features) # [S,B,E]
-        image_features = image_features.transpose(0, 1) # [B,S,E]
         return image_features
 
     def embed_text(self, text: torch.Tensor) -> torch.Tensor:
@@ -191,7 +185,16 @@ class ModelTF(ModelCE):
         ----
         - outputs: [B,T,V]
         '''
-        embed_image = self.embed_image(images, image_padding_mask) # [B,S,C']
+        embed_image = self.embed_image(images, image_padding_mask) # [B,E,H,W]
+
+        B, E, H, W = embed_image.shape
+        embed_image = embed_image.transpose(-2, -1) # [B,E,W',H']
+        embed_image = embed_image.reshape(B, E, W*H) # [B, E, S=W'xH']
+        embed_image = embed_image.permute(2,0,1) # [S,B,E]
+        embed_image = self.encoder(embed_image) # [S,B,E]
+        if isinstance(embed_image, tuple):
+            embed_image, _ = embed_image
+        embed_image = embed_image.transpose(0, 1) # [B,S,E]
         embed_image = embed_image.transpose(0, 1) # [S,B,E]
 
         embed_text = self.embed_text(labels) # [B,T,V]
@@ -200,9 +203,9 @@ class ModelTF(ModelCE):
         embed_text = embed_text.transpose(0, 1) # [T,B,E]
 
         attn_mask = generate_square_subsequent_mask(embed_text.size(0)).to(embed_text.device)
-        outputs = self.decoder(embed_text, embed_image,
-                               tgt_mask=attn_mask,
-                               tgt_key_padding_mask=label_padding_mask)
+        outputs, _ = self.decoder(embed_text, embed_image,
+                                  tgt_mask=attn_mask,
+                                  tgt_key_padding_mask=label_padding_mask)
         outputs = outputs.transpose(0, 1)
         outputs = self.character_distribution(outputs)
         return outputs
@@ -213,8 +216,8 @@ class ModelTF(ModelCE):
         max_length: int,
         beam_width: int,
         image_padding_mask: Optional[torch.Tensor] = None,
-        output_weights: Optional[bool] = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        output_weights: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[Tuple[Optional[torch.Tensor], torch.Tensor, torch.Tensor]]]:
         '''
         Shapes:
         -------
@@ -225,20 +228,21 @@ class ModelTF(ModelCE):
         --------
         - outputs: [B,T]
         - lengths: [B]
+        - weights: (Optional[[B,H',W',H',W']], Optional[[B,T,H',W']], Optional[[B,T,T]] or None if output_weights=False
         '''
         # if beam_width > 1:
         #     return self.beamsearch(images, max_length, beam_width, image_padding_mask=image_padding_mask)
         # else:
         #     return self.greedy(images, max_length, image_padding_mask=image_padding_mask)
-        return self.greedy(images, max_length, image_padding_mask=image_padding_mask)
+        return self.greedy(images, max_length, image_padding_mask=image_padding_mask, output_weights=output_weights)
 
     def greedy(
         self,
         images: torch.Tensor,
         max_length: int,
         image_padding_mask: Optional[torch.Tensor] = None,
-        output_weights: Optional[bool] = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        output_weights: bool = False,
+    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[Tuple[Optional[torch.Tensor], torch.Tensor, torch.Tensor]]]:
         '''
         Shapes:
         -------
@@ -249,9 +253,22 @@ class ModelTF(ModelCE):
         --------
         - outputs: [B,T]
         - lengths: [B]
+        - weights: (Optional[[B,H',W',H',W']], Optional[[B,T,H',W']], Optional[[B,T,T]] or None if output_weights=False
         '''
         batch_size = len(images)
-        images = self.embed_image(images, image_padding_mask) # [B,S,E]
+        images = self.embed_image(images, image_padding_mask) # [B,E,H,W]
+
+        B, E, H, W = images.shape
+        images = images.reshape(B, E, H*W) # [B, E, S=H*W]
+        images = images.permute(2,0,1) # [S,B,E]
+        images = self.encoder(images) # [S,B,E]
+        images = images.transpose(0,1) # [B,S,E]
+        
+        if output_weights and isinstance(images, tuple):
+            images, enc_weights = images
+            # TODO: reshape weights for encoder
+        else:
+            enc_weights = None
 
         predicts = self.start_index.expand(batch_size).unsqueeze(-1) # [B,1]
         predicts = self.embed_text(predicts) # [B,1,V]
@@ -259,7 +276,8 @@ class ModelTF(ModelCE):
         end_flag = torch.zeros(batch_size, dtype=torch.bool)
         lengths = torch.ones(batch_size, dtype=torch.long).fill_(max_length)
         for t in range(max_length):
-            output = self.inference_step(images, predicts) # [B,V]
+            output, (self_attn_w, attn_w) = self.inference_step(images, predicts)
+            # [B,V], [L,B,T,T], [L,B,T,S]
             output = F.softmax(output, dim=-1) # [B,V]
             predicts = torch.cat([predicts, output.unsqueeze(1)], dim=1) # [B,T,V]
 
@@ -271,25 +289,38 @@ class ModelTF(ModelCE):
                 break
 
         predicts = predicts[:, 1:].argmax(-1)
-        return predicts, lengths, None # TODO: output weights
+        if output_weights:
+            attn_w = attn_w.reshape(-1, B, t+1, H, W)  # [L,B,T,H,W]
+            return predicts, lengths, (enc_weights, attn_w, self_attn_w)
+        else:
+            return predicts, lengths, None
 
-    def inference_step(self, embedded_image: torch.Tensor, predicts: torch.Tensor):
+    def inference_step(
+        self,
+        embedded_image: torch.Tensor,
+        predicts: torch.Tensor,
+    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         '''
         Shapes:
         -------
         - embedded_image: [B,S,E]
         - predicts: [B,T,V]
+
+        Returns:
+        --------
         - logits: [B,V]
+        - self_attn_weights, attn_weights: [L,B,T,T], [L,B,T,S]
         '''
         text = self.Vc(predicts) # [B,T,E]
         text = self.pe_text(text) # [B,T,E]
         text = text.transpose(0,1) # [T,B,E]
         attn_mask = generate_square_subsequent_mask(text.size(0)).to(text.device)
         embedded_image = embedded_image.transpose(0, 1) # [S,B,E]
-        output = self.decoder(text, embedded_image, tgt_mask=attn_mask) # [T,B,E]
+        output, (self_attn_w, attn_w) = self.decoder(text, embedded_image, tgt_mask=attn_mask)
+        # output: [T,B,E], self_attn_w: [L,B,T,T], attn_w: [L,B,T,S]
         output = output.transpose_(0, 1) # [B,T,E]
         logits = self.character_distribution(output[:,-1]) # [B,V]
-        return logits
+        return logits, (self_attn_w, attn_w)
 
     # def beamsearch(self, images: torch.Tensor):
     #     '''
@@ -378,4 +409,3 @@ class ModelTF(ModelCE):
     #     lengths = torch.tensor(lengths, dtype=torch.long)
 
     #     return decoded_batch, lengths
-

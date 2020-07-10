@@ -242,7 +242,7 @@ class ModelRNN(ModelCE):
         images: torch.Tensor,
         max_length: int,
         image_padding_mask: Optional[torch.Tensor] = None,
-        output_weights: Optional[bool] = False,
+        output_weights: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         '''
         Shapes:

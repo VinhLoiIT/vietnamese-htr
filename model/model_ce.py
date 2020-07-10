@@ -2,14 +2,16 @@ from typing import Dict, List, Optional, Tuple
 
 import pytorch_lightning as pl
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 import torch.optim as optim
+from torch import Tensor
+from torch.nn.utils.rnn import pack_padded_sequence
+from torch.utils.data import DataLoader
 
 from dataset import HTRDataset, collate_images, collate_text
-from utils import ImageTransform, length_to_padding_mask
 from metrics import compute_cer, compute_wer
-from torch.nn.utils.rnn import pack_padded_sequence
+from utils import ImageTransform, length_to_padding_mask
 
 __all__ = [
     'ModelCE'
@@ -86,8 +88,8 @@ class ModelCE(pl.LightningModule):
         max_length: int,
         beam_width: int,
         image_padding_mask: Optional[torch.Tensor] = None,
-        output_weights: Optional[bool] = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        output_weights: bool = False,
+    ) -> Tuple[Tensor, Tensor, Optional[Tuple[Optional[Tensor], Tensor, Tensor]]]:
         '''
         Shapes:
         -------
@@ -110,8 +112,8 @@ class ModelCE(pl.LightningModule):
         images: torch.Tensor,
         max_length: int,
         image_padding_mask: Optional[torch.Tensor] = None,
-        output_weights: Optional[bool] = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        output_weights: bool = False,
+    ) -> Tuple[Tensor, Tensor, Optional[Tuple[Optional[Tensor], Tensor, Tensor]]]:
         '''
         Shapes:
         -------
@@ -131,8 +133,8 @@ class ModelCE(pl.LightningModule):
         max_length: int,
         beam_width: int,
         image_padding_mask: Optional[torch.Tensor] = None,
-        output_weights: Optional[bool] = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        output_weights: bool = False,
+    ) -> Tuple[Tensor, Tensor, Optional[Tuple[Optional[Tensor], Tensor, Tensor]]]:
         '''
         Shapes:
         -------

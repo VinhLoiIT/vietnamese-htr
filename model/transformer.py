@@ -5,7 +5,7 @@ import copy
 from torch.nn.init import xavier_uniform_
 
 from torch import Tensor
-from typing import Optional
+from typing import Optional, Tuple, List
 
 
 class Transformer(nn.Module):
@@ -154,7 +154,7 @@ class TransformerEncoder(nn.Module):
         _reset_parameters(self)
 
     def forward(self, src, mask=None, src_key_padding_mask=None):
-        # type: (Tensor, Optional[Tensor], Optional[Tensor]) -> Tensor
+        # type: (Tensor, Optional[Tensor], Optional[Tensor]) -> Tuple[Tensor, Tensor]
         r"""Pass the input through the encoder layers in turn.
 
         Args:
@@ -166,14 +166,19 @@ class TransformerEncoder(nn.Module):
             see the docs in Transformer class.
         """
         output = src
+        # weights = torch.empty(self.num_layers, *src.transpose(0,1).shape)
+        l_weights = []
 
-        for mod in self.layers:
-            output = mod(output, src_mask=mask, src_key_padding_mask=src_key_padding_mask)
+        for layer_idx, mod in enumerate(self.layers):
+            output, weight = mod(output, src_mask=mask, src_key_padding_mask=src_key_padding_mask)
+            # weights[layer_idx] = weight
+            l_weights.append(weight)
+        weights = torch.stack(l_weights, dim=0)
 
         if self.norm is not None:
             output = self.norm(output)
 
-        return output
+        return output, weights
 
 
 class TransformerDecoder(nn.Module):
@@ -204,7 +209,7 @@ class TransformerDecoder(nn.Module):
     def forward(self, tgt, memory, tgt_mask=None,
                 memory_mask=None, tgt_key_padding_mask=None,
                 memory_key_padding_mask=None):
-        # type: (Tensor, Tensor, Optional[Tensor], Optional[Tensor], Optional[Tensor], Optional[Tensor]) -> Tensor
+        # type: (Tensor, Tensor, Optional[Tensor], Optional[Tensor], Optional[Tensor], Optional[Tensor]) -> Tuple[Tensor, Tuple[Tensor, Tensor]]
         r"""Pass the inputs (and mask) through the decoder layer in turn.
 
         Args:
@@ -219,17 +224,23 @@ class TransformerDecoder(nn.Module):
             see the docs in Transformer class.
         """
         output = tgt
+        weights: List[Tuple[Tensor, Tensor]] = []
 
         for mod in self.layers:
-            output = mod(output, memory, tgt_mask=tgt_mask,
-                         memory_mask=memory_mask,
-                         tgt_key_padding_mask=tgt_key_padding_mask,
-                         memory_key_padding_mask=memory_key_padding_mask)
+            output, weight = mod(output, memory, tgt_mask=tgt_mask,
+                                 memory_mask=memory_mask,
+                                 tgt_key_padding_mask=tgt_key_padding_mask,
+                                 memory_key_padding_mask=memory_key_padding_mask)
+            weights.append(weight)
 
         if self.norm is not None:
             output = self.norm(output)
 
-        return output
+        list_self_weights, list_attn_weights = zip(*weights)
+        self_weights: Tensor = torch.stack(list_self_weights, dim=0)  # [L, B, T, T]
+        attn_weights: Tensor = torch.stack(list_attn_weights, dim=0)  # [L, B, T, S]
+
+        return output, (self_weights, attn_weights)
 
 class TransformerEncoderLayer(nn.Module):
     r"""TransformerEncoderLayer is made up of self-attn and feedforward network.
@@ -273,7 +284,7 @@ class TransformerEncoderLayer(nn.Module):
         super(TransformerEncoderLayer, self).__setstate__(state)
 
     def forward(self, src, src_mask=None, src_key_padding_mask=None):
-        # type: (Tensor, Optional[Tensor], Optional[Tensor]) -> Tensor
+        # type: (Tensor, Optional[Tensor], Optional[Tensor]) -> Tuple[Tensor, Tensor]
         r"""Pass the input through the encoder layer.
 
         Args:
@@ -284,14 +295,14 @@ class TransformerEncoderLayer(nn.Module):
         Shape:
             see the docs in Transformer class.
         """
-        src2 = self.self_attn(src, src, src, attn_mask=src_mask,
-                              key_padding_mask=src_key_padding_mask)[0]
+        src2, weights = self.self_attn(src, src, src, attn_mask=src_mask,
+                                       key_padding_mask=src_key_padding_mask)
         src = src + self.dropout1(src2)
         src = self.norm1(src)
         src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
         src = src + self.dropout2(src2)
         src = self.norm2(src)
-        return src
+        return src, weights
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -341,7 +352,7 @@ class TransformerDecoderLayer(nn.Module):
 
     def forward(self, tgt, memory, tgt_mask=None, memory_mask=None,
                 tgt_key_padding_mask=None, memory_key_padding_mask=None):
-        # type: (Tensor, Tensor, Optional[Tensor], Optional[Tensor], Optional[Tensor], Optional[Tensor]) -> Tensor
+        # type: (Tensor, Tensor, Optional[Tensor], Optional[Tensor], Optional[Tensor], Optional[Tensor]) -> Tuple[Tensor, Tuple[Tensor, Tensor]]
         r"""Pass the inputs (and mask) through the decoder layer.
 
         Args:
@@ -355,18 +366,18 @@ class TransformerDecoderLayer(nn.Module):
         Shape:
             see the docs in Transformer class.
         """
-        tgt2 = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask,
-                              key_padding_mask=tgt_key_padding_mask)[0]
+        tgt2, self_weights = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask,
+                                            key_padding_mask=tgt_key_padding_mask)
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
-        tgt2 = self.multihead_attn(tgt, memory, memory, attn_mask=memory_mask,
-                                   key_padding_mask=memory_key_padding_mask)[0]
+        tgt2, attn_weights = self.multihead_attn(tgt, memory, memory, attn_mask=memory_mask,
+                                                 key_padding_mask=memory_key_padding_mask)
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout3(tgt2)
         tgt = self.norm3(tgt)
-        return tgt
+        return tgt, (self_weights, attn_weights)
 
 
 def generate_square_subsequent_mask(sz):
