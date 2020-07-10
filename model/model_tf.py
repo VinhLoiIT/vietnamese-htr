@@ -194,8 +194,6 @@ class ModelTF(ModelCE):
         embed_image = self.encoder(embed_image) # [S,B,E]
         if isinstance(embed_image, tuple):
             embed_image, _ = embed_image
-        embed_image = embed_image.transpose(0, 1) # [B,S,E]
-        embed_image = embed_image.transpose(0, 1) # [S,B,E]
 
         embed_text = self.embed_text(labels) # [B,T,V]
         embed_text = self.Vc(embed_text) # [B,T,E]
@@ -259,7 +257,8 @@ class ModelTF(ModelCE):
         images = self.embed_image(images, image_padding_mask) # [B,E,H,W]
 
         B, E, H, W = images.shape
-        images = images.reshape(B, E, H*W) # [B, E, S=H*W]
+        images = images.transpose(-2, -1) # [B,E,W,H]
+        images = images.reshape(B, E, W*H) # [B, E, S=W*H]
         images = images.permute(2,0,1) # [S,B,E]
         images = self.encoder(images) # [S,B,E]
         images = images.transpose(0,1) # [B,S,E]
@@ -290,7 +289,7 @@ class ModelTF(ModelCE):
 
         predicts = predicts[:, 1:].argmax(-1)
         if output_weights:
-            attn_w = attn_w.reshape(-1, B, t+1, H, W)  # [L,B,T,H,W]
+            attn_w = attn_w.reshape(-1, B, t+1, W, H).transpose(-2, -1)  # [L,B,T,H,W]
             return predicts, lengths, (enc_weights, attn_w, self_attn_w)
         else:
             return predicts, lengths, None
