@@ -260,7 +260,11 @@ class ModelTF(ModelCE):
         images = images.transpose(-2, -1) # [B,E,W,H]
         images = images.reshape(B, E, W*H) # [B, E, S=W*H]
         images = images.permute(2,0,1) # [S,B,E]
-        images, enc_weights = self.encoder(images) # [S,B,E]
+        images = self.encoder(images) # [S,B,E]
+        if isinstance(images, tuple):
+            images, enc_weights = images
+        else:
+            enc_weights = None
         # TODO: reshape weights for encoder
 
         images = images.transpose(0,1) # [B,S,E]
