@@ -1,0 +1,6 @@
+cnn:
+    name: vgg
+    args:
+      pretrained: true
+      version: vgg16_bn
+      droplast: 1

@@ -31,10 +31,6 @@ class Attention(nn.Module):
     def score(self, queries, keys):
         raise NotImplementedError()
 
-    def apply_mask(self, weights, attn_mask):
-        weights[~attn_mask] = float('-inf')
-        return weights
-
     def forward(self, queries, keys, values, attn_mask=None, output_weights=False):
         '''
         Input:
@@ -48,7 +44,9 @@ class Attention(nn.Module):
         '''
         weights = self.score(queries, keys) # [B,T,S]
         if attn_mask is not None:
-            weights = self.apply_mask(weights, attn_mask) # [B,T,S]
+            if attn_mask.ndim == 2:
+                attn_mask = attn_mask.unsqueeze(0)
+            weights += attn_mask
         weights = F.softmax(weights, dim=-1)
         values = weights.bmm(values) # [B, T, A]
         if output_weights:

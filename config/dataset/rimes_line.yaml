@@ -2,7 +2,7 @@ dataset:
   name: rimes_line
   args:
 
-  scale_height: 64
+  scale_height: 32
   min_width: 34.0
 
   train:

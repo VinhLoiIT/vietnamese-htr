@@ -16,7 +16,8 @@ import itertools
 import tqdm
 from nltk.util import ngrams, bigrams
 import collections
-from typing import Union
+from typing import Union, List
+import argparse
 
 def update_dict(d, u):
     for k, v in u.items():
@@ -26,31 +27,10 @@ def update_dict(d, u):
             d[k] = v
     return d
 
-class ScaleImageByHeight(object):
-    def __init__(self, target_height, min_width:Union[int, float] = 2.5):
-        self.target_height = target_height
-        if isinstance(min_width, float):
-            self.min_width = int(target_height * min_width)
-        elif isinstance(min_width, int):
-            self.min_width = min_width
-        else:
-            raise ValueError('"min_width" should be int or float')
 
-    def __call__(self, image):
-        width, height = image.size
-        factor = self.target_height / height
-        scaled_width = int(width * factor)
-        resized_image = image.resize((scaled_width, self.target_height), Image.NEAREST)
-        image_width = scaled_width if scaled_width > self.min_width else self.min_width
-        if resized_image.size[0] > self.min_width:
-            image = resized_image.resize((self.min_width, self.target_height))
-        elif resized_image.size[0] < self.min_width:
-            image = Image.new('L', (self.min_width, self.target_height))
-            image.paste(resized_image)
-        else:
-            image = resized_image
-        return image
-
+def length_to_padding_mask(lengths: torch.Tensor) -> torch.Tensor:
+    mask = torch.arange(lengths.max()).type_as(lengths).repeat(lengths.size(0), 1) >= lengths.unsqueeze_(1)
+    return mask
 
 class Dilation(object):
     def __init__(self, radius: int):
@@ -78,39 +58,7 @@ class HandcraftFeature(object):
         handcraft_img = Image.fromarray(np.uint8(handcraft_img))
         return handcraft_img
 
-class StringTransform(object):
-    def __init__(self, vocab, batch_first=True):
-        self.batch_first = batch_first
-        self.EOS_int = vocab.char2int(vocab.EOS)
-        self.vocab = vocab
 
-    def calc_length(self, tensor: torch.tensor):
-        '''
-        Calculate length of each string ends with EOS
-        '''
-        lengths = []
-        for sample in tensor.tolist():
-            try:
-                length = sample.index(self.EOS_int)
-            except:
-                length = len(sample)
-            lengths.append(length)
-        return lengths
-
-    def __call__(self, tensor: torch.tensor):
-        '''
-        Convert a Tensor to a list of Strings
-        '''
-        if not self.batch_first:
-            tensor = tensor.transpose(0,1)
-        lengths = self.calc_length(tensor)
-
-        strs = []
-        for i, length in enumerate(lengths):
-            chars = list(map(self.vocab.int2char, tensor[i, :length].tolist()))
-            chars = self.vocab.process_label_invert(chars)
-            strs.append(chars)
-        return strs
 
 class Spell():
     def __init__(self, corpus_folder='data/corpus', corpus_words=None, corpus_biwords=None):
@@ -309,27 +257,3 @@ class Spell():
             score *= self.lm_letter[c1, c2][c3]
         score = score**(1/float(len(word)+2))
         return score
-
-class CTCStringTransform(object):
-    def __init__(self, vocab, batch_first=True):
-        self.batch_first = batch_first
-        self.vocab = vocab
-
-    def __call__(self, tensor: torch.tensor):
-        '''
-        Convert a Tensor to a list of Strings
-        '''
-        if not self.batch_first:
-            tensor = tensor.transpose(0,1)
-        # tensor: [B,T]
-        strs = []
-        for sample in tensor.tolist():
-            # sample: [T]
-            # remove duplicates
-            sample = [sample[0]] + [c for i,c in enumerate(sample[1:]) if c != sample[i]]
-            # remove 'blank'
-            sample = list(filter(lambda i: i != self.vocab.BLANK_IDX, sample))
-            # convert to characters
-            sample = list(map(self.vocab.int2char, sample))
-            strs.append(sample)
-        return strs

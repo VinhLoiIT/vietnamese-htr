@@ -1,6 +1,0 @@
-optimizer:
-  name: rmsprop
-  args:
-    lr: 1.0e-5
-    momentum: 0.9
-    weight_decay: 0

@@ -3,14 +3,10 @@ from pprint import pformat
 from typing import Dict, Union
 
 from torch import optim
-from model import *
+from model.feature_extractor import *
 from dataset import IAM, RIMESVocab, VNOnDBVocab, VNOnDBVocabFlatten, CinnamonVocab, HTRDataset
 
 MAPPING_NAME = {
-    # optimizers
-    'sgd': optim.SGD,
-    'adam': optim.Adam,
-    'rmsprop': optim.RMSprop,
 
     # cnn
     'densenet': DenseNetFE,
@@ -20,19 +16,7 @@ MAPPING_NAME = {
     'resnet': ResnetFE,
     'resnext': ResnextFE,
     'deformresnet': DeformResnetFE,
-
-    # lr_scheduler:
-    'plateau': optim.lr_scheduler.ReduceLROnPlateau,
-
-    # model
-    'tf': ModelTF,
-    'tf_a2d': ModelTFA2D,
-    'rnn': ModelRNN,
-
-    # model
-    'ctc_tf_encoder': CTCModelTFEncoder,
-    'ctc_tf_full': CTCModelTF,
-    'ctc_rnn': CTCModelRNN,
+    'vgg': VGGFE,
 
     # dataset
     'vnondb': HTRDataset,

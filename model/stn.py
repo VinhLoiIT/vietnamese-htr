@@ -40,7 +40,7 @@ class STN(nn.Module):
         '''
         x = self.localization(images) # [B,C',H',W']
         x = self.pool(x) # [B,C',3,3]
-        x = x.view(-1, 10 * 3 * 3)
+        x = x.reshape(-1, 10 * 3 * 3)
         theta = self.fc_loc(x)
         theta = theta.view(-1, 2, 3)
 
