@@ -172,6 +172,8 @@ class ModelRNN(ModelCE):
         image_features = image_features.reshape(B, C, W*H) # [B, C', S=W'xH']
         image_features = image_features.permute(2,0,1) # [S, B, C']
         image_features = self.encoder(image_features)  # [S, B, C']
+        if isinstance(image_features, tuple):
+            image_features = image_features[0]
         image_features = image_features.transpose(0, 1) # [B, S, C']
         return image_features
 
