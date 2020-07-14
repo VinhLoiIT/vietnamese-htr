@@ -305,3 +305,38 @@ class ModelCE(pl.LightningModule):
                              image_transform=image_transform,
                              **config['dataset'][partition])
         return dataset
+
+    #####################################
+    # Inference
+    #####################################
+    def inference(self, images: List, **decode_kwargs) -> Tuple[List[str], Optional[Tuple[Optional[Tensor], Tensor, Tensor]]]:
+        '''
+        Receive a list of images of type PIL.Image.Image and return a corresponding list of string
+
+        Parameters:
+        -----------
+        - images: List of PIL.Image.Image
+        - decode_kwargs: parameters in `ModelCE.decode` method
+
+        Returns:
+        --------
+        - outputs: List of string text
+        - attention_weights: attention weights if output_weights=True in decode_kwargs, else return None
+        '''
+        image_tensors: List[torch.Tensor] = [self.transform.test(image) for image in images]
+        inputs, image_padding_mask = collate_images(image_tensors, torch.tensor([0]), None)
+        outputs, lengths, weights = self.decode(inputs,
+                                                image_padding_mask=image_padding_mask,
+                                                **decode_kwargs)
+
+        text: List[str] = []
+        for (output, length) in zip(outputs.cpu().tolist(), lengths.cpu().tolist()):
+            if output[-1] == self.vocab.EOS_IDX:
+                output = list(map(self.vocab.int2char, output[:length-1]))
+            else:
+                output = list(map(self.vocab.int2char, output[:length]))
+            output = self.vocab.process_label_invert(output)
+            output = ''.join(output)
+            text.append(output)
+
+        return text, weights
