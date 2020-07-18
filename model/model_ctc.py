@@ -85,8 +85,7 @@ class ModelCTC(pl.LightningModule):
         B, C, H, W = images.shape
         images = images.reshape(B,C*H,W).permute(0,2,1) # [B,T=W,D]
         outputs, _ = self.blstm(images)
-        # outputs: [seq_len, batch, num_directions * hidden_size]
-        outputs = outputs.transpose(0, 1) # [B,T,D]
+        # outputs: [batch, seq_len, num_directions * hidden_size]
         outputs = self.character_distribution(outputs) # [B,T,V]
         return outputs
 
@@ -183,9 +182,10 @@ class ModelCTC(pl.LightningModule):
 
         # forward
         logits = self(images, image_padding_mask) # [B,T,V]
-        log_prob = F.log_softmax(logits, -1)
+        log_prob = F.log_softmax(logits, -1) # [B,T,V]
 
         predict_lengths = torch.full(size=(logits.size(0),), fill_value=logits.size(1), dtype=torch.long)
+        log_prob = log_prob.transpose(0, 1) # [T,B,V]
         loss = self.loss_fn(log_prob, labels, predict_lengths, lengths)
 
         results = {
@@ -212,7 +212,7 @@ class ModelCTC(pl.LightningModule):
         pred = self.decode(images,
                            self.beam_width,
                            image_padding_mask)
-        tgt, tgt_len = labels[:, 1:], lengths - 1
+        tgt, tgt_len = labels[:, 1:], lengths - 2
 
         # convert to strings
         predicts = self.ctc_string_tf(pred)
