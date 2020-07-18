@@ -331,10 +331,7 @@ class ModelCE(pl.LightningModule):
 
         text: List[str] = []
         for (output, length) in zip(outputs.cpu().tolist(), lengths.cpu().tolist()):
-            if output[-1] == self.vocab.EOS_IDX:
-                output = list(map(self.vocab.int2char, output[:length-1]))
-            else:
-                output = list(map(self.vocab.int2char, output[:length]))
+            output = list(map(self.vocab.int2char, output[:length-1]))
             output = self.vocab.process_label_invert(output)
             output = ''.join(output)
             text.append(output)
