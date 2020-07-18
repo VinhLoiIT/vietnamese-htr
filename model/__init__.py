@@ -6,3 +6,4 @@ from .aspp import ASPP
 from .model_ce import ModelCE
 from .model_tf import ModelTF
 from .model_rnn import ModelRNN
+from .model_ctc import ModelCTC
