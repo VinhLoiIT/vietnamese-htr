@@ -5,14 +5,19 @@ dataset:
   scale_height: 96
   min_width: 128
 
+  use_patch: True
+
   train:
     csv: data/VNOnDB/word/train_word_new.csv
     image_folder: data/VNOnDB/word/train_word
+    patch: data/VNOnDB/word/train_word_patch.csv
 
   validation:
     csv: data/VNOnDB/word/validation_word_new.csv
     image_folder: data/VNOnDB/word/validation_word
+    patch: data/VNOnDB/word/validation_word_patch.csv
 
   test:
     csv: data/VNOnDB/word/test_word_new.csv
     image_folder: data/VNOnDB/word/test_word
+    patch: data/VNOnDB/word/test_word_patch.csv
