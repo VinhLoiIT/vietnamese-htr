@@ -1,4 +1,4 @@
-from model import ModelTF, ModelRNN
+from model import ModelTF, ModelRNN, ModelCTC
 import pytorch_lightning as pl
 import argparse
 from config import Config, initialize
@@ -15,7 +15,7 @@ if __name__ == '__main__':
     parser = pl.Trainer.add_argparse_args(parser)
 
     # figure out which model to use
-    parser.add_argument('model_name', type=str, choices=['tf', 'rnn'], help='Transformer or RNN')
+    parser.add_argument('model_name', type=str, choices=['tf', 'rnn', 'ctc'], help='Transformer or RNN or CTC')
     parser.add_argument('checkpoint', type=str, help='Checkpoint')
 
     # THIS LINE IS KEY TO PULL THE MODEL NAME
@@ -29,6 +29,9 @@ if __name__ == '__main__':
     elif temp_args.model_name == 'rnn':
         parser = ModelRNN.add_model_specific_args(parser)
         Model = ModelRNN
+    elif temp_args.model_name == 'ctc':
+        parser = ModelCTC.add_model_specific_args(parser)
+        Model = ModelCTC
 
     args = parser.parse_args()
 
