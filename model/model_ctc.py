@@ -1,3 +1,4 @@
+from argparse import ArgumentParser
 from typing import Dict, List, Optional, Tuple
 
 import pytorch_lightning as pl
@@ -5,24 +6,38 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch import Tensor
-from torch.nn.utils.rnn import pack_padded_sequence
 from torch.utils.data import DataLoader
+from torch import Tensor
 
+from config import initialize
 from dataset import HTRDataset, collate_images, collate_text
 from metrics import compute_cer, compute_wer
-from utils import ImageTransform, length_to_padding_mask
-from loss import LabelSmoothingCrossEntropy
+from utils import CTCStringTransform, ImageTransform, StringTransform
+
+from .aspp import ASPP
+from .feature_extractor import ResnetFE
+
 
 __all__ = [
-    'ModelCE'
+    'ModelCTC'
 ]
 
 
-class ModelCE(pl.LightningModule):
+class ModelCTC(pl.LightningModule):
     '''
-    Base class for all models
+    Paper @Are Multidimensional LSTM neccessary for HTR, 2017
     '''
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        parser.add_argument('--beam_width', type=int, default=1)
+        parser.add_argument('--batch_size', type=int, default=16)
+        parser.add_argument('--dropout', type=float, default=0.1)
+        parser.add_argument('--hidden_size', type=int, default=256)
+        parser.add_argument('--num_layers', type=int, default=1)
+        return parser
+
     def __init__(self, config):
         super().__init__()
         self.save_hyperparameters('config')
@@ -33,68 +48,52 @@ class ModelCE(pl.LightningModule):
                                         min_width=config['dataset']['min_width'])
 
         self.config = config
-        self.max_length = config['max_length']
         self.beam_width = config['beam_width']
 
-        if config.get('smoothing', 0) == 0:
-            self.loss_fn = nn.CrossEntropyLoss()
-        else:
-            self.loss_fn = LabelSmoothingCrossEntropy(config['smoothing'])
+        # define model
+        self.cnn = initialize(config['cnn'])
+        self.vocab = initialize(config['vocab'], add_blank=True)
+        self.loss_fn = nn.CTCLoss(blank=self.vocab.BLANK_IDX)
 
-    def embed_image(
-        self,
-        images: torch.Tensor,
-        image_padding_mask: Optional[torch.Tensor],
-    ) -> torch.Tensor:
-        '''
-        Shapes:
-        -------
-        - images: [B,C,H,W]
-        - image_padding_mask: [B,H,W]
-
-        Returns:
-        --------
-        - image_features: [B,S,C']
-        '''
-
-    def embed_text(self, text: torch.Tensor) -> torch.Tensor:
-        '''
-        Shapes:
-        -------
-        - text: [B,T]
-
-        Returns:
-        --------
-        - text: [B,T,V]
-        '''
+        output_H = config['dataset']['scale_height'] // (32//2**config['cnn']['args']['droplast'])
+        self.blstm = nn.LSTM(input_size=output_H * self.cnn.n_features,
+                             hidden_size=config['hidden_size'],
+                             num_layers=config['num_layers'],
+                             batch_first=True,
+                             dropout=config['dropout'],
+                             bidirectional=True)
+        self.character_distribution = nn.Linear(2*config['hidden_size'], self.vocab.size)
+        self.ctc_string_tf = CTCStringTransform(self.vocab)
+        self.string_tf = StringTransform(self.vocab)
 
     def forward(
         self,
         images: torch.Tensor,
-        labels: torch.Tensor,
         image_padding_mask: Optional[torch.Tensor] = None,
-        label_padding_masks: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         '''
         Shapes:
         -------
         - images: [B,C,H,W]
-        - labels: [B,T]
         - image_padding_mask: [B,H,W]
-        - label_padding_masks: [B,T]
 
         Returns:
         ----
         - outputs: [B,T,V]
         '''
+        images = self.cnn(images) # [B,C,H',W']
+        B, C, H, W = images.shape
+        images = images.reshape(B,C*H,W).permute(0,2,1) # [B,T=W,D]
+        outputs, _ = self.blstm(images)
+        # outputs: [batch, seq_len, num_directions * hidden_size]
+        outputs = self.character_distribution(outputs) # [B,T,V]
+        return outputs
 
     def decode(
         self,
         images: torch.Tensor,
-        max_length: int,
         beam_width: int,
         image_padding_mask: Optional[torch.Tensor] = None,
-        output_weights: bool = False,
     ) -> Tuple[Tensor, Tensor, Optional[Tuple[Optional[Tensor], Tensor, Tensor]]]:
         '''
         Shapes:
@@ -106,19 +105,16 @@ class ModelCE(pl.LightningModule):
         --------
         - outputs: [B,T]
         - lengths: [B]
-        - weights: weights if `output_weights` is True, else None
         '''
         if beam_width > 1:
-            return self.beamsearch(images, max_length, beam_width, image_padding_mask=image_padding_mask)
+            return self.beamsearch(images, beam_width, image_padding_mask=image_padding_mask)
         else:
-            return self.greedy(images, max_length, image_padding_mask=image_padding_mask)
+            return self.greedy(images, image_padding_mask=image_padding_mask)
 
     def greedy(
         self,
         images: torch.Tensor,
-        max_length: int,
         image_padding_mask: Optional[torch.Tensor] = None,
-        output_weights: bool = False,
     ) -> Tuple[Tensor, Tensor, Optional[Tuple[Optional[Tensor], Tensor, Tensor]]]:
         '''
         Shapes:
@@ -132,6 +128,9 @@ class ModelCE(pl.LightningModule):
         - lengths: [B]
         - weights: weights if `output_weights` is True, else None
         '''
+        logits = self(images, image_padding_mask)
+        outputs = logits.argmax(-1) # [B,T,V]
+        return outputs
 
     def beamsearch(
         self,
@@ -151,10 +150,11 @@ class ModelCE(pl.LightningModule):
         --------
         - outputs: [B,T]
         - lengths: [B]
-        - weights: weights if `output_weights` is True, else None
         '''
+        # outputs = self(images, image_padding_mask)
+        # outputs = outputs.argmax(-1) # [B,T,V]
+        # return outputs
 
-    # most cases
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=self.config['lr'])
         lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
@@ -178,23 +178,19 @@ class ModelCE(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         # prepare forward
         images, labels, image_padding_mask, lengths = batch
-
-        input_labels = labels[:, :-1]
-        input_labels_padding_mask = length_to_padding_mask(lengths - 1)
+        labels, lengths = labels[:, 1:], lengths - 2 # ignore <sos> and <eos>
 
         # forward
-        outputs = self(images, input_labels, image_padding_mask, input_labels_padding_mask)
+        logits = self(images, image_padding_mask) # [B,T,V]
+        log_prob = F.log_softmax(logits, -1) # [B,T,V]
 
-        # prepare loss forward
-        targets = labels[:, 1:]
-        packed_outputs = pack_padded_sequence(outputs, lengths - 1, True)[0]
-        packed_targets = pack_padded_sequence(targets, lengths - 1, True)[0]
-
-        loss = self.loss_fn(packed_outputs, packed_targets)
+        predict_lengths = torch.full(size=(logits.size(0),), fill_value=logits.size(1), dtype=torch.long)
+        log_prob = log_prob.transpose(0, 1) # [T,B,V]
+        loss = self.loss_fn(log_prob, labels, predict_lengths, lengths)
 
         results = {
             'loss': loss,
-            'log': {'Train/Loss': loss},
+            'log': {'Train/Loss': loss.item()},
         }
         return results
 
@@ -213,15 +209,13 @@ class ModelCE(pl.LightningModule):
         images, labels, image_padding_mask, lengths = batch
 
         # decode
-        pred, pred_len, _ = self.decode(images,
-                                        self.max_length,
-                                        self.beam_width,
-                                        image_padding_mask,
-                                        output_weights=False)
-        tgt, tgt_len = labels[:, 1:], lengths - 1
+        pred = self.decode(images,
+                           self.beam_width,
+                           image_padding_mask)
+        tgt, tgt_len = labels[:, 1:], lengths - 2
 
         # convert to strings
-        predicts = self.string_tf(pred, pred_len)
+        predicts = self.ctc_string_tf(pred)
         groundtruth = self.string_tf(tgt, tgt_len)
 
         cer_distances, num_chars = compute_cer(predicts, groundtruth, indistinguish=False)
@@ -305,35 +299,3 @@ class ModelCE(pl.LightningModule):
                              image_transform=image_transform,
                              **config['dataset'][partition])
         return dataset
-
-    #####################################
-    # Inference
-    #####################################
-    def inference(self, images: List, **decode_kwargs) -> Tuple[List[str], Optional[Tuple[Optional[Tensor], Tensor, Tensor]]]:
-        '''
-        Receive a list of images of type PIL.Image.Image and return a corresponding list of string
-
-        Parameters:
-        -----------
-        - images: List of PIL.Image.Image
-        - decode_kwargs: parameters in `ModelCE.decode` method
-
-        Returns:
-        --------
-        - outputs: List of string text
-        - attention_weights: attention weights if output_weights=True in decode_kwargs, else return None
-        '''
-        image_tensors: List[torch.Tensor] = [self.transform.test(image) for image in images]
-        inputs, image_padding_mask = collate_images(image_tensors, torch.tensor([0]), None)
-        outputs, lengths, weights = self.decode(inputs,
-                                                image_padding_mask=image_padding_mask,
-                                                **decode_kwargs)
-
-        text: List[str] = []
-        for (output, length) in zip(outputs.cpu().tolist(), lengths.cpu().tolist()):
-            output = list(map(self.vocab.int2char, output[:length-1]))
-            output = self.vocab.process_label_invert(output)
-            output = ''.join(output)
-            text.append(output)
-
-        return text, weights
