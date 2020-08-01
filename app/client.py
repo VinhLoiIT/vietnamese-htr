@@ -1,6 +1,6 @@
 import sys
 from PyQt5.QtCore import Qt, QPoint, QRect, QByteArray, QBuffer, QIODevice
-from PyQt5.QtWidgets import QMainWindow, QApplication, QRubberBand, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QFileDialog
+from PyQt5.QtWidgets import QMainWindow, QApplication, QRubberBand, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QFileDialog, QLineEdit
 from PyQt5.QtGui import QPixmap, QPainter, QPen, QPalette, QBrush, QIcon, QImage
 
 from typing import List
@@ -39,7 +39,7 @@ class Main(QMainWindow):
         load_image_button = QPushButton(text='LoadImage')
         load_image_button.clicked.connect(self.onLoadImageClick)
         toolbar.addWidget(load_image_button)
-        
+
         segment_button = QPushButton(text='Word Segment')
         segment_button.clicked.connect(self.image_viewer.autoSegmentation)
         toolbar.addWidget(segment_button)
@@ -56,14 +56,14 @@ class Main(QMainWindow):
         file_path, file_ext = QFileDialog.getOpenFileName(self,
                                                           'Select image file',
                                                           '.',
-                                                          'PNG(*.png);; JPEG (*.jpg *.jpeg);; TIFF (*.tif);; All files (*.*)',
-                                                          'JPEG (*.jpg *.jpeg)')
+                                                          'Image(*.png *.jpeg *.jpg *.tif);; All files (*.*)',
+                                                          'Image(*.png *.jpeg *.jpg *.tif)')
         if file_path:
             self.loadImage(file_path)
 
     def onRotateLeftClick(self):
         print('Rotate L')
-        
+
     def onRotateRightClick(self):
         print('Rotate R')
 
@@ -94,10 +94,19 @@ class Main(QMainWindow):
                 'id': i,
                 'data': base64.b64encode(buffer.getvalue()).decode(),
             })
-        
+
         result = requests.post(self.API_URL, json=request_predicts)
         if result.ok:
-            print(result.json())
+            result = result.json()['results']
+            # list of
+            # {
+            #     'status': 0, # No error
+            #     'id': image_id,
+            #     'text': text,
+            # }
+            predict_str = ' '.join([word['text'] for word in result])
+            print('predict_str: "{}"'.format(predict_str))
+            self.image_viewer.show_predict(predict_str)
         else:
             print(result.reason)
 

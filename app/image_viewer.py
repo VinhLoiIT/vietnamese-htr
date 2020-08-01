@@ -1,6 +1,6 @@
 import sys
 from PyQt5.QtCore import Qt, QPoint, QRect, QByteArray, QBuffer, QIODevice, pyqtSlot, pyqtSignal
-from PyQt5.QtWidgets import QMainWindow, QApplication, QRubberBand, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea
+from PyQt5.QtWidgets import QMainWindow, QApplication, QRubberBand, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QLineEdit
 from PyQt5.QtGui import QPixmap, QPainter, QPen, QPalette, QBrush, QIcon, QImage
 
 from typing import List, Optional
@@ -42,6 +42,9 @@ class ImageViewer(QWidget):
         self.scrollArea.setBackgroundRole(QPalette.Dark)
         self.scrollArea.setWidget(self.label_image)
         layout.addWidget(self.scrollArea)
+
+        self.predict_label = QLineEdit('')
+        layout.addWidget(self.predict_label)
 
         self.setLayout(layout)
 
@@ -119,6 +122,9 @@ class ImageViewer(QWidget):
             rubber_band.show()
             self.bboxes.append(rubber_band)
 
+    @pyqtSlot()
+    def show_predict(self, predict: str):
+        self.predict_label.setText(predict)
 
     @pyqtSlot()
     def clearBoxes(self):
