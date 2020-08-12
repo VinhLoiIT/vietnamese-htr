@@ -2,10 +2,9 @@
 Vietnamese handwritten text recognition system
 
 # Install Library
-- Pytorch: `conda install pytorch torchvision cudatoolkit=10.1 -c pytorch`
-- tqdm: `pip install tqdm`
-- Edit distance `pip install editdistance`
-- Pytorch Lightning: `pip install pytorch_lightning==0.8.4`
+```
+conda env create -f environment.yml
+```
 
 # Run
 ## Train
@@ -41,6 +40,15 @@ See Pytorch Lightning Trainer config at: [Pytorch Lightning Doc](https://pytorch
 ```
 python test.py {tf, rnn} CKPT_FILE
 ```
+
+## Visualization
+
+Run jupyter:
+```
+jupyter lab
+```
+
+Open respective notebooks for further visualization
 
 
 # Code references
