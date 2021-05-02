@@ -56,3 +56,16 @@ Open respective notebooks for further visualization
 - [Image Captioning](https://github.com/yunjey/pytorch-tutorial/tree/master/tutorials/03-advanced/image_captioning)
 - [DeepSpeech](https://github.com/SeanNaren/deepspeech.pytorch)
 - [Seq2Seq-Pytorch](https://github.com/b-etienne/Seq2seq-PyTorch)
+
+If you found the code useful, please cite our paper.
+```code
+@INPROCEEDINGS{9335877,
+author={Ly, Vinh-Loi and Doan, Tuan and Ly, Ngoc Quoc},
+booktitle={2020 7th NAFOSTED Conference on Information and Computer Science (NICS)},
+title={Transformer-based model for Vietnamese Handwritten Word Image Recognition},
+year={2020},
+volume={},
+number={},
+pages={163-168},
+doi={10.1109/NICS51282.2020.9335877}}
+```
